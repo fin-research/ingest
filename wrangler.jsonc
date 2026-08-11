@@ -1,0 +1,47 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ingest",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ARTICLE_API_BASE_URL": "https://eastmoney.hasbai.xyz/api"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "triggers": {
+    "crons": [
+      "*/5 0-9 * * MON-FRI"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ingest",
+      "database_id": "badf4f64-f1cc-4f1e-887f-03911ae627b7",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "workflows": [
+    {
+      "binding": "ARTICLE_WORKFLOW",
+      "name": "article",
+      "class_name": "ArticleWorkflow"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ARTICLE_BUCKET",
+      "bucket_name": "article"
+    }
+  ],
+  "ai_search": [
+    {
+      "binding": "FINANCE_SEARCH",
+      "instance_name": "finance",
+      "remote": true
+    }
+  ]
+}
