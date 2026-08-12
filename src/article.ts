@@ -107,7 +107,7 @@ export function articleObjectKey(article: ArticleMetadata): string {
 }
 
 export function buildArticleMarkdown(article: ArticleMetadata, detail: ArticleDetail): string {
-  const markdown = addSentenceBoundarySpaces(`# ${article.title}\n\n${detail.content.trim()}\n`);
+  const markdown = addChinesePunctuationSpaces(`# ${article.title}\n\n${detail.content.trim()}\n`);
   assertMarkdownFits(markdown);
   return markdown;
 }
@@ -183,8 +183,8 @@ function apiUrl(apiBaseUrl: string, path: string): URL {
   return new URL(path, base);
 }
 
-export function addSentenceBoundarySpaces(text: string): string {
-  return text.replace(/([。！？；])(?!(?: |　))/g, "$1 ");
+export function addChinesePunctuationSpaces(text: string): string {
+  return text.replace(/([。！？；，、：])(?!(?: |　))/g, "$1 ");
 }
 
 function sanitizeFilename(value: string): string {

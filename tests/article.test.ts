@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  addSentenceBoundarySpaces,
+  addChinesePunctuationSpaces,
   articleObjectKey,
   buildArticleMarkdown,
   fetchResearchReportDetail,
@@ -68,11 +68,15 @@ describe("research report helpers", () => {
     expect(markdown).toBe("# 信用/市场解读\n\n第一句。 第二句！ \n\n第三句？ \n");
   });
 
-  it("adds parser-visible Chinese sentence spaces idempotently", () => {
-    const processed = addSentenceBoundarySpaces("句一。句二！\n句三？　句四； 句五。");
+  it("adds parser-visible Chinese punctuation spaces idempotently", () => {
+    const processed = addChinesePunctuationSpaces(
+      "句一，句二。句三！\n句四？　句五； 句六：分项一、分项二。",
+    );
 
-    expect(processed).toBe("句一。 句二！ \n句三？　句四； 句五。 ");
-    expect(addSentenceBoundarySpaces(processed)).toBe(processed);
+    expect(processed).toBe(
+      "句一， 句二。 句三！ \n句四？　句五； 句六： 分项一、 分项二。 ",
+    );
+    expect(addChinesePunctuationSpaces(processed)).toBe(processed);
   });
 
   it("processes Chinese sentence punctuation in the title as part of the document", () => {
