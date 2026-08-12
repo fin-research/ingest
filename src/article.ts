@@ -89,7 +89,7 @@ export async function fetchResearchReportDetail(
   article: ArticleMetadata,
   fetcher: Fetcher = fetch,
 ): Promise<ArticleDetail> {
-  const detailId = article.newsId || article.sentimentId;
+  const detailId = article.sentimentId || article.newsId;
   if (!detailId) throw new Error(`article ${article.articleId} has no detail id`);
   const response = await fetcher(apiUrl(apiBaseUrl, `news/${encodeURIComponent(detailId)}`), {
     headers: { Accept: "application/json" },

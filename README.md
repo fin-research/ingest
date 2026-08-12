@@ -4,7 +4,7 @@
 
 Workflow 每篇文章执行三个可重试步骤：
 
-1. 通过 `/api/news/{newsId}` 获取文章全文并生成 Markdown。
+1. 通过 `/api/news/{sentimentId}` 获取文章全文并生成 Markdown；缺少 `sentimentId` 时回退到 `newsId`。
 2. 写入 R2 `article` 存储桶，键为 `yyyy-mm-dd/标题.md`。
 3. 从 R2 读取同一对象并上传到 AI Search `default/finance`。
 

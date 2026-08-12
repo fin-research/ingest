@@ -46,7 +46,7 @@ describe("research report helpers", () => {
     expect(requested[0]?.searchParams.get("pageSize")).toBe("100");
   });
 
-  it("fetches report details by newsId", async () => {
+  it("fetches report details by sentimentId", async () => {
     let requested = "";
     const detail = await fetchResearchReportDetail(
       "https://eastmoney.hasbai.xyz/api",
@@ -57,7 +57,7 @@ describe("research report helpers", () => {
       },
     );
 
-    expect(new URL(requested).pathname).toBe("/api/news/N1");
+    expect(new URL(requested).pathname).toBe("/api/news/2026081100010555370");
     expect(detail.content).toBe("完整正文。");
   });
 
