@@ -11,6 +11,13 @@ import {
   validateArticleMetadata,
 } from "./article";
 import { uploadAndWaitForAiSearch } from "./ai-search";
+import {
+  ARTICLE_FEATURE_MODEL,
+  ARTICLE_FEATURE_PROMPT_VERSION,
+  extractArticleFeatures,
+  saveArticleFeatures,
+  validateArticleFeatures,
+} from "./feature-extraction";
 import { collectResearchReports, updateArticleLink } from "./ingest";
 import { isWechatArticleLink, resolveArticleContent } from "./wechat";
 
@@ -36,7 +43,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
     );
     const detail = validateArticleDetail(await new Response(detailStream).json());
 
-    const document = isWechatArticleLink(detail.link || "")
+    const documentStream = isWechatArticleLink(detail.link || "")
       ? await step.do(
           "download WeChat article",
           {
@@ -49,12 +56,49 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
           },
         )
       : markdownStream(article, detail);
+    const markdown = await new Response(documentStream).text();
+
+    const extracted = validateArticleFeatures(
+      await step.do(
+        "extract article features with Gemma 4",
+        { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" }, timeout: "5 minutes" },
+        async () => {
+          return await extractArticleFeatures(
+            async (input) =>
+              await this.env.AI.run(ARTICLE_FEATURE_MODEL, input, {
+                gateway: {
+                  id: this.env.AI_GATEWAY_ID,
+                  skipCache: true,
+                  collectLog: true,
+                  metadata: {
+                    article_id: article.articleId,
+                    prompt_version: ARTICLE_FEATURE_PROMPT_VERSION,
+                  },
+                  requestTimeoutMs: 120_000,
+                },
+                tags: ["eastmoney", "feature-extraction", "model:gemma4"],
+              }),
+            article.title,
+            markdown,
+          );
+        },
+      ),
+      article.title,
+    );
+
+    await step.do(
+      "store article features in D1",
+      { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
+      async () => {
+        await saveArticleFeatures(this.env.DB, article.articleId, extracted, new Date().toISOString());
+        return { articleId: article.articleId, keywordCount: extracted.keywords.length };
+      },
+    );
 
     const archived = await step.do(
       "store article in R2",
       { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
       async () => {
-        const markdown = await new Response(document).arrayBuffer();
         const object = await this.env.ARTICLE_BUCKET.put(key, markdown, {
           httpMetadata: { contentType: "text/markdown; charset=utf-8" },
           customMetadata: articleMetadata(article),

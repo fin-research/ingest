@@ -27,6 +27,24 @@ describe("article workflow steps", () => {
           stream("# 测试文章\n\n公众号正文。\n"),
         );
         await modifier.mockStepResult(
+          { name: "extract article features with Gemma 4" },
+          {
+            title: "测试文章",
+            author: "测试机构",
+            summary: "测试摘要",
+            importance: 60,
+            keywords: [
+              {
+                topic: "测试主题",
+                fact: "原文事实",
+                interpretation: "归纳含义",
+                impact: "权益：影响；利率债：影响",
+              },
+            ],
+          },
+        );
+        await modifier.mockStepResult({ name: "store article features in D1" }, { stored: true });
+        await modifier.mockStepResult(
           { name: "store article in R2" },
           { key: "2026-08-12/测试文章.md", etag: "etag-1", size: 32 },
         );
@@ -50,6 +68,9 @@ describe("article workflow steps", () => {
       await expect(
         instance.waitForStepResult({ name: "download WeChat article" }),
       ).resolves.toBeInstanceOf(ReadableStream);
+      await expect(
+        instance.waitForStepResult({ name: "extract article features with Gemma 4" }),
+      ).resolves.toMatchObject({ importance: 60 });
     } finally {
       await instance.dispose();
     }
