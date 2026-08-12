@@ -6,6 +6,7 @@ import {
   buildArticleMarkdown,
   fetchResearchReportDetail,
   fetchResearchReportList,
+  prepareAiSearchMarkdown,
   validateArticleMetadata,
   workflowInstanceId,
 } from "../src/article";
@@ -61,11 +62,14 @@ describe("research report helpers", () => {
     expect(detail.content).toBe("完整正文。");
   });
 
-  it("builds the exact Markdown document with Chinese sentence spacing", () => {
+  it("keeps R2 Markdown unchanged by the AI Search punctuation workaround", () => {
     const markdown = buildArticleMarkdown(validateArticleMetadata(article), {
       content: "第一句。第二句！\n\n第三句？",
     });
-    expect(markdown).toBe("# 信用/市场解读\n\n第一句。 第二句！ \n\n第三句？ \n");
+    expect(markdown).toBe("# 信用/市场解读\n\n第一句。第二句！\n\n第三句？\n");
+    expect(prepareAiSearchMarkdown(markdown)).toBe(
+      "# 信用/市场解读\n\n第一句。 第二句！ \n\n第三句？ \n",
+    );
   });
 
   it("adds parser-visible Chinese punctuation spaces idempotently", () => {
@@ -79,13 +83,14 @@ describe("research report helpers", () => {
     expect(addChinesePunctuationSpaces(processed)).toBe(processed);
   });
 
-  it("processes Chinese sentence punctuation in the title as part of the document", () => {
+  it("processes title punctuation only when preparing AI Search content", () => {
     const markdown = buildArticleMarkdown(
       { ...validateArticleMetadata(article), title: "标题？" },
       { content: "正文。" },
     );
 
-    expect(markdown).toBe("# 标题？ \n\n正文。 \n");
+    expect(markdown).toBe("# 标题？\n\n正文。\n");
+    expect(prepareAiSearchMarkdown(markdown)).toBe("# 标题？ \n\n正文。 \n");
   });
 
   it("rejects malformed list metadata and empty detail content", async () => {

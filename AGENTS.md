@@ -12,6 +12,7 @@
 ## Structure
 
 - `src/article.ts`：`/api/news` 列表/正文契约、输入校验、Markdown 和 R2 路径生成。
+- `src/wechat.ts`：复用 `kb/src/services/wechat.ts`、`content.ts` 与 `article-cleaning.ts` 的公众号直连下载、HTML 转 Markdown 和风险披露清洗逻辑。
 - `src/ingest.ts`：D1 批量去重、仅新增写入、Workflow 批量启动及失败回滚。
 - `src/index.ts`：Cron 与 `/health` Worker 入口、`ArticleWorkflow`。
 - `migrations/`：D1 schema，只保存 ID 与文章元数据，不保存正文。
@@ -23,8 +24,9 @@
 - Cron 固定为 `*/5 0-9 * * MON-FRI`（UTC），对应北京时间工作日 `[08:00, 18:00)` 每 5 分钟。
 - 列表固定请求 `/api/news?tag=市场解读&pageSize=100`；必须再次按精确标签防御性过滤。
 - 每轮 D1 使用批量查重；重复轮询不得更新已有记录。新增记录使用一次 `batch()`，避免逐篇网络往返和写放大。
-- Workflow 固定为三步：获取文章全文、写 R2、写 AI Search。步骤必须幂等，所有 Promise 必须 await。
+- Workflow 固定为三步：获取文章全文、写 R2、写 AI Search。获取详情后把原文 `link` 幂等写入 D1；若它是 `mp.weixin.qq.com` 公众号链接，优先直连下载并按 kb 口径转换 Markdown，再删除图片与链接 URL（链接锚文本保留），并清除风险披露及后文；下载或解析失败则使用 DM 正文。步骤必须幂等，所有 Promise 必须 await。
 - R2 路径与 AI Search key 固定为 `yyyy-mm-dd/标题.md`；正文不得写入 D1。
+- 中文标点后加空格只是 AI Search 解析兼容修复，只能在写 AI Search 前应用；R2 保存未经该修复的正文。
 - Cloudflare 资源优先使用 binding，不得在 Worker 中保存或调用 Cloudflare API Token。
 - 外部 API 响应必须限长读取并运行时校验；不得把响应直接断言成业务类型。
 

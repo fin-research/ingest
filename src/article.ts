@@ -15,6 +15,7 @@ export interface ArticleMetadata {
 
 export interface ArticleDetail {
   content: string;
+  link?: string;
 }
 
 interface NewsListResponse {
@@ -56,7 +57,11 @@ export function validateArticleDetail(value: unknown): ArticleDetail {
     throw new Error("news detail must be an object");
   }
   const row = value as Record<string, unknown>;
-  return { content: requireString(row.content, "content", MAX_MARKDOWN_BYTES) };
+  const link = optionalHttpUrl(row.link, "link", 4_096);
+  return {
+    content: requireString(row.content, "content", MAX_MARKDOWN_BYTES),
+    ...(link ? { link } : {}),
+  };
 }
 
 export async function fetchResearchReportList(
@@ -107,9 +112,15 @@ export function articleObjectKey(article: ArticleMetadata): string {
 }
 
 export function buildArticleMarkdown(article: ArticleMetadata, detail: ArticleDetail): string {
-  const markdown = addChinesePunctuationSpaces(`# ${article.title}\n\n${detail.content.trim()}\n`);
+  const markdown = `# ${article.title}\n\n${detail.content.trim()}\n`;
   assertMarkdownFits(markdown);
   return markdown;
+}
+
+export function prepareAiSearchMarkdown(markdown: string): string {
+  const prepared = addChinesePunctuationSpaces(markdown);
+  assertMarkdownFits(prepared);
+  return prepared;
 }
 
 export function assertMarkdownFits(markdown: string): void {
@@ -143,7 +154,11 @@ async function readJsonResponse(response: Response, label: string): Promise<unkn
   }
 }
 
-async function readTextBounded(response: Response, maxBytes: number, label: string): Promise<string> {
+export async function readTextBounded(
+  response: Response,
+  maxBytes: number,
+  label: string,
+): Promise<string> {
   const declared = Number(response.headers.get("Content-Length") || "0");
   if (Number.isFinite(declared) && declared > maxBytes) {
     throw new Error(`${label} response exceeds ${maxBytes} bytes`);
@@ -219,6 +234,21 @@ function requireString(value: unknown, name: string, maxLength: number): string 
 function optionalString(value: unknown, name: string, maxLength: number): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   return requireString(value, name, maxLength);
+}
+
+function optionalHttpUrl(value: unknown, name: string, maxLength: number): string | undefined {
+  const normalized = optionalString(value, name, maxLength);
+  if (!normalized) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error(`${name} must be an HTTP(S) URL`);
+  }
+  if (!parsed.hostname || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
+    throw new Error(`${name} must be an HTTP(S) URL`);
+  }
+  return normalized;
 }
 
 export type { Fetcher, NewsListResponse };

@@ -122,6 +122,17 @@ export class D1ArticleRepository implements ArticleRepository {
   }
 }
 
+export async function updateArticleLink(
+  database: D1Database,
+  articleId: string,
+  link: string,
+): Promise<void> {
+  await database
+    .prepare("UPDATE article SET link = ? WHERE article_id = ? AND (link IS NULL OR link != ?)")
+    .bind(link, articleId, link)
+    .run();
+}
+
 class CloudflareArticleWorkflowLauncher implements ArticleWorkflowLauncher {
   constructor(private readonly workflow: Env["ARTICLE_WORKFLOW"]) {}
 

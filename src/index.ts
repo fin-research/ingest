@@ -5,11 +5,13 @@ import {
   articleObjectKey,
   buildArticleMarkdown,
   fetchResearchReportDetail,
+  prepareAiSearchMarkdown,
   type ArticleMetadata,
   validateArticleMetadata,
 } from "./article";
 import { uploadAndWaitForAiSearch } from "./ai-search";
-import { collectResearchReports } from "./ingest";
+import { collectResearchReports, updateArticleLink } from "./ingest";
+import { resolveArticleContent } from "./wechat";
 
 const AI_SEARCH_POLL_TIMEOUT_MS = 8 * 60 * 1000;
 const AI_SEARCH_POLL_INTERVAL_MS = 5_000;
@@ -27,7 +29,9 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
       { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
       async () => {
         const detail = await fetchResearchReportDetail(this.env.ARTICLE_API_BASE_URL, article);
-        return new Blob([buildArticleMarkdown(article, detail)]).stream();
+        if (detail.link) await updateArticleLink(this.env.DB, article.articleId, detail.link);
+        const content = await resolveArticleContent(detail);
+        return new Blob([buildArticleMarkdown(article, { ...detail, content })]).stream();
       },
     );
 
@@ -54,7 +58,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
       async () => {
         const object = await this.env.ARTICLE_BUCKET.get(archived.key);
         if (!object || !object.body) throw new Error(`R2 object not found: ${archived.key}`);
-        const markdown = await object.text();
+        const markdown = prepareAiSearchMarkdown(await object.text());
         const item = await uploadAndWaitForAiSearch(
           this.env.FINANCE_SEARCH.items,
           archived.key,
