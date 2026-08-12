@@ -3,6 +3,15 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [
-    cloudflareTest({ miniflare: { compatibilityDate: "2026-08-11" } }),
+    cloudflareTest({
+      main: "./src/index.ts",
+      miniflare: {
+        compatibilityDate: "2026-08-11",
+        compatibilityFlags: ["nodejs_compat"],
+        workflows: {
+          ARTICLE_WORKFLOW: { name: "article", className: "ArticleWorkflow" },
+        },
+      },
+    }),
   ],
 });

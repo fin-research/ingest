@@ -7,11 +7,12 @@ import {
   fetchResearchReportDetail,
   prepareAiSearchMarkdown,
   type ArticleMetadata,
+  validateArticleDetail,
   validateArticleMetadata,
 } from "./article";
 import { uploadAndWaitForAiSearch } from "./ai-search";
 import { collectResearchReports, updateArticleLink } from "./ingest";
-import { resolveArticleContent } from "./wechat";
+import { isWechatArticleLink, resolveArticleContent } from "./wechat";
 
 const AI_SEARCH_POLL_TIMEOUT_MS = 8 * 60 * 1000;
 const AI_SEARCH_POLL_INTERVAL_MS = 5_000;
@@ -24,16 +25,30 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
     });
     const key = articleObjectKey(article);
 
-    const document = await step.do(
-      "download and process article text",
+    const detailStream = await step.do(
+      "download article from DM",
       { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
       async () => {
         const detail = await fetchResearchReportDetail(this.env.ARTICLE_API_BASE_URL, article);
         if (detail.link) await updateArticleLink(this.env.DB, article.articleId, detail.link);
-        const content = await resolveArticleContent(detail);
-        return new Blob([buildArticleMarkdown(article, { ...detail, content })]).stream();
+        return new Blob([JSON.stringify(detail)]).stream();
       },
     );
+    const detail = validateArticleDetail(await new Response(detailStream).json());
+
+    const document = isWechatArticleLink(detail.link || "")
+      ? await step.do(
+          "download WeChat article",
+          {
+            retries: { limit: 5, delay: "10 seconds", backoff: "exponential" },
+            timeout: "2 minutes",
+          },
+          async () => {
+            const content = await resolveArticleContent(detail);
+            return markdownStream(article, { ...detail, content });
+          },
+        )
+      : markdownStream(article, detail);
 
     const archived = await step.do(
       "store article in R2",
@@ -113,4 +128,11 @@ function articleMetadata(article: ArticleMetadata): Record<string, string> {
     ...(article.newsId ? { news_id: article.newsId } : {}),
     published_at: new Date(article.publishedAt).toISOString(),
   };
+}
+
+function markdownStream(
+  article: ArticleMetadata,
+  detail: Parameters<typeof buildArticleMarkdown>[1],
+): ReadableStream<Uint8Array> {
+  return new Blob([buildArticleMarkdown(article, detail)]).stream();
 }
