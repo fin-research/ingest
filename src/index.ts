@@ -63,6 +63,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
             metadata: { published_at: new Date(article.publishedAt).toISOString() },
             timeoutMs: AI_SEARCH_POLL_TIMEOUT_MS,
             pollIntervalMs: AI_SEARCH_POLL_INTERVAL_MS,
+            fileContentEmptyRetries: 1,
           },
         );
         if (item.status === "error" && item.error === "file_content_empty") {

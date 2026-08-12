@@ -32,11 +32,13 @@ describe("AI Search upload polling", () => {
           },
         };
       },
+      async delete() {},
     };
 
     const result = await uploadAndWaitForAiSearch(items, "2026-08-11/article.md", "正文。 ", {
       timeoutMs: 480_000,
       pollIntervalMs: 5_000,
+      fileContentEmptyRetries: 1,
       wait: async (delayMs) => {
         waits.push(delayMs);
       },
@@ -61,17 +63,53 @@ describe("AI Search upload polling", () => {
       get() {
         return { info: async () => item("completed") };
       },
+      async delete() {},
     };
 
     const result = await uploadAndWaitForAiSearch(items, "2026-08-11/article.md", "正文。 ", {
       timeoutMs: 480_000,
       pollIntervalMs: 5_000,
+      fileContentEmptyRetries: 1,
       wait: async () => undefined,
       now: () => 0,
     });
 
     expect(result.status).toBe("completed");
     expect(uploads).toBe(0);
+  });
+
+  it("deletes and uploads once more after file_content_empty", async () => {
+    let uploads = 0;
+    const deleted: string[] = [];
+    const items: AiSearchItemsClient = {
+      async list() {
+        return { result: [] };
+      },
+      async upload() {
+        uploads += 1;
+        return uploads === 1
+          ? { ...item("error"), error: "file_content_empty" }
+          : item("completed");
+      },
+      get() {
+        return { info: async () => item("completed") };
+      },
+      async delete(itemId) {
+        deleted.push(itemId);
+      },
+    };
+
+    const result = await uploadAndWaitForAiSearch(items, "2026-08-11/article.md", "正文。 ", {
+      timeoutMs: 480_000,
+      pollIntervalMs: 5_000,
+      fileContentEmptyRetries: 1,
+      wait: async () => undefined,
+      now: () => 0,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(uploads).toBe(2);
+    expect(deleted).toEqual(["item-1"]);
   });
 
   it("fails after the configured overall polling timeout", async () => {
@@ -86,12 +124,14 @@ describe("AI Search upload polling", () => {
       get() {
         return { info: async () => item("running") };
       },
+      async delete() {},
     };
 
     await expect(
       uploadAndWaitForAiSearch(items, "2026-08-11/article.md", "正文。 ", {
         timeoutMs: 12_000,
         pollIntervalMs: 5_000,
+        fileContentEmptyRetries: 1,
         wait: async (delayMs) => {
           elapsedMs += delayMs;
         },

@@ -17,12 +17,14 @@ interface AiSearchItemsClient {
     options?: { metadata?: Record<string, unknown> },
   ): Promise<AiSearchItemSnapshot>;
   get(itemId: string): { info(): Promise<AiSearchItemSnapshot> };
+  delete(itemId: string): Promise<void>;
 }
 
 interface UploadAndWaitOptions {
   metadata?: Record<string, unknown>;
   timeoutMs: number;
   pollIntervalMs: number;
+  fileContentEmptyRetries: number;
   wait?: (delayMs: number) => Promise<void>;
   now?: () => number;
 }
@@ -42,16 +44,29 @@ export async function uploadAndWaitForAiSearch(
     item = await items.upload(key, content, { metadata: options.metadata });
   }
 
-  while (item.status === "queued" || item.status === "running") {
-    const remainingMs = deadline - now();
-    if (remainingMs <= 0) {
-      throw new Error(`AI Search indexing timed out for ${key} after ${options.timeoutMs}ms`);
+  let fileContentEmptyRetries = 0;
+  while (true) {
+    while (item.status === "queued" || item.status === "running") {
+      const remainingMs = deadline - now();
+      if (remainingMs <= 0) {
+        throw new Error(`AI Search indexing timed out for ${key} after ${options.timeoutMs}ms`);
+      }
+      await wait(Math.min(options.pollIntervalMs, remainingMs));
+      item = await items.get(item.id).info();
     }
-    await wait(Math.min(options.pollIntervalMs, remainingMs));
-    item = await items.get(item.id).info();
-  }
 
-  return item;
+    if (
+      item.status !== "error" ||
+      item.error !== "file_content_empty" ||
+      fileContentEmptyRetries >= options.fileContentEmptyRetries
+    ) {
+      return item;
+    }
+
+    await items.delete(item.id);
+    fileContentEmptyRetries += 1;
+    item = await items.upload(key, content, { metadata: options.metadata });
+  }
 }
 
 export type { AiSearchItemsClient, UploadAndWaitOptions };
