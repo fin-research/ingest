@@ -18,8 +18,8 @@ class MemoryRepository implements ArticleRepository {
   async insertIfAbsent(articles: ArticleMetadata[]): Promise<ArticleMetadata[]> {
     const inserted: ArticleMetadata[] = [];
     for (const article of articles) {
-      if (this.rows.has(article.articleId)) continue;
-      this.rows.set(article.articleId, article);
+      if (this.rows.has(article.id)) continue;
+      this.rows.set(article.id, article);
       inserted.push(article);
     }
     return inserted;
@@ -36,7 +36,7 @@ class MemoryWorkflow implements ArticleWorkflowLauncher {
 
   async start(articles: ArticleMetadata[]): Promise<string[]> {
     this.batches.push(articles);
-    return articles.map((article) => `article-${article.articleId}`);
+    return articles.map((article) => `article-${article.id}`);
   }
 }
 

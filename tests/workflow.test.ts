@@ -57,8 +57,7 @@ describe("article workflow steps", () => {
       await env.ARTICLE_WORKFLOW.create({
         id: instanceId,
         params: {
-          articleId: "workflow-step-wechat",
-          sentimentId: "workflow-step-wechat",
+          id: "workflow-step-wechat",
           title: "测试文章",
           publishedAt: "2026-08-12T01:00:00Z",
         },

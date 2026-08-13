@@ -6,8 +6,8 @@ export const MARKET_COMMENTARY_TAG = "市场解读";
 export const NEWS_PAGE_SIZE = 100;
 
 export interface ArticleMetadata {
-  articleId: string;
-  sentimentId?: string;
+  /** DM sentimentId; used as the canonical article identity. */
+  id: string;
   newsId?: string;
   title: string;
   publishedAt: string;
@@ -29,11 +29,10 @@ export function validateArticleMetadata(value: unknown): ArticleMetadata {
     throw new Error("news item must be an object");
   }
   const row = value as Record<string, unknown>;
-  const sentimentId = optionalString(row.sentimentId, "sentimentId", 200);
+  const id = optionalString(row.sentimentId ?? row.id, "sentimentId", 200);
   const newsId = optionalString(row.newsId, "newsId", 200);
-  const articleId = sentimentId || newsId;
-  if (!articleId) throw new Error("news item must contain sentimentId or newsId");
-  if (!/^[A-Za-z0-9_-]+$/.test(articleId)) {
+  if (!id) throw new Error("news item must contain sentimentId");
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) {
     throw new Error("article id contains unsupported characters");
   }
 
@@ -44,8 +43,7 @@ export function validateArticleMetadata(value: unknown): ArticleMetadata {
   }
 
   return {
-    articleId,
-    ...(sentimentId ? { sentimentId } : {}),
+    id,
     ...(newsId ? { newsId } : {}),
     title,
     publishedAt,
@@ -94,9 +92,7 @@ export async function fetchResearchReportDetail(
   article: ArticleMetadata,
   fetcher: Fetcher = fetch,
 ): Promise<ArticleDetail> {
-  const detailId = article.sentimentId || article.newsId;
-  if (!detailId) throw new Error(`article ${article.articleId} has no detail id`);
-  const response = await fetcher(apiUrl(apiBaseUrl, `news/${encodeURIComponent(detailId)}`), {
+  const response = await fetcher(apiUrl(apiBaseUrl, `news/${encodeURIComponent(article.id)}`), {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(30_000),
   });
@@ -104,7 +100,7 @@ export async function fetchResearchReportDetail(
 }
 
 export function workflowInstanceId(article: ArticleMetadata): string {
-  return `article-${article.articleId}`;
+  return `article-${article.id}`;
 }
 
 export function articleObjectKey(article: ArticleMetadata): string {
@@ -138,7 +134,7 @@ function hasMarketCommentaryTag(value: unknown): boolean {
 
 function deduplicateArticles(articles: ArticleMetadata[]): ArticleMetadata[] {
   const unique = new Map<string, ArticleMetadata>();
-  for (const article of articles) unique.set(article.articleId, article);
+  for (const article of articles) unique.set(article.id, article);
   return [...unique.values()];
 }
 

@@ -15,6 +15,7 @@ import {
   ARTICLE_FEATURE_MODEL,
   ARTICLE_FEATURE_PROMPT_VERSION,
   buildAiSearchMetadata,
+  buildR2Metadata,
   extractArticleFeatures,
   saveArticleFeatures,
   validateArticleFeatures,
@@ -38,7 +39,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
       { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
       async () => {
         const detail = await fetchResearchReportDetail(this.env.ARTICLE_API_BASE_URL, article);
-        if (detail.link) await updateArticleLink(this.env.DB, article.articleId, detail.link);
+        if (detail.link) await updateArticleLink(this.env.DB, article.id, detail.link);
         return new Blob([JSON.stringify(detail)]).stream();
       },
     );
@@ -72,7 +73,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
                   skipCache: true,
                   collectLog: true,
                   metadata: {
-                    article_id: article.articleId,
+                    article_id: article.id,
                     prompt_version: ARTICLE_FEATURE_PROMPT_VERSION,
                   },
                   requestTimeoutMs: 120_000,
@@ -91,8 +92,8 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
       "store article features in D1",
       { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
       async () => {
-        await saveArticleFeatures(this.env.DB, article.articleId, extracted, new Date().toISOString());
-        return { articleId: article.articleId, keywordCount: extracted.keywords.length };
+        await saveArticleFeatures(this.env.DB, article.id, extracted, new Date().toISOString());
+        return { articleId: article.id, keywordCount: extracted.keywords.length };
       },
     );
 
@@ -102,7 +103,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
       async () => {
         const object = await this.env.ARTICLE_BUCKET.put(key, markdown, {
           httpMetadata: { contentType: "text/markdown; charset=utf-8" },
-          customMetadata: articleMetadata(article),
+          customMetadata: buildR2Metadata(extracted, article.publishedAt),
         });
         if (!object) throw new Error(`R2 failed to store ${key}`);
         return { key, etag: object.etag, size: object.size };
@@ -165,15 +166,6 @@ export default {
     console.log(JSON.stringify({ event: "research_report_ingest", ...summary }));
   },
 } satisfies ExportedHandler<Env>;
-
-function articleMetadata(article: ArticleMetadata): Record<string, string> {
-  return {
-    article_id: article.articleId,
-    ...(article.sentimentId ? { sentiment_id: article.sentimentId } : {}),
-    ...(article.newsId ? { news_id: article.newsId } : {}),
-    published_at: new Date(article.publishedAt).toISOString(),
-  };
-}
 
 function markdownStream(
   article: ArticleMetadata,

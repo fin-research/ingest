@@ -1,5 +1,5 @@
 export const ARTICLE_FEATURE_MODEL = "@cf/google/gemma-4-26b-a4b-it" as const;
-export const ARTICLE_FEATURE_PROMPT_VERSION = "article-features-v4";
+export const ARTICLE_FEATURE_PROMPT_VERSION = "v2";
 
 const MAX_KEYWORDS = 8;
 
@@ -40,19 +40,20 @@ const SYSTEM_PROMPT = `/no_think
 3. author 只提取正文或标题明确出现的发布机构或研究业务团队，不需要精确到个人姓名。例：“国海固收颜子琦团队”输出“国海固收”，“华泰固收张继强团队”输出“华泰固收”；无法确认机构时输出空字符串，不得猜测。
 4. title 必须逐字复制输入标题。
 
-统一重要性标准（importance 为 0-100 的整数）：
-- 0-20：几乎没有权益或利率定价信息；
-- 21-40：背景材料或局部事实，资产影响弱；
-- 41-60：给出资产方向或影响机制，但范围有限、证据单一；
-- 61-80：包含重要政策、宏观、资金或估值变化，传导清晰且具备交易参考；
-- 81-100：重大政策或宏观拐点，证据充分，可能引发显著或跨资产重定价。
-单一机构的主观判断不得仅因措辞强烈而获得高分。
+importance 评分（0-100 的整数）：
+先分别打分再求和，只输出总分：影响范围 0-25、变化幅度与新颖性 0-25、证据确定性 0-20、定价时效与可交易性 0-20、影响持续性 0-10。
+- 影响范围：单一个股约 5，单一行业约 10，单一大类资产约 16，跨资产或全国性宏观约 22，系统性影响 25。
+- 变化幅度与新颖性：重复已知信息 0-5，边际变化 6-12，显著变化 13-19，制度或趋势拐点 20-25。
+- 证据确定性：传闻或弱推断 0-4，机构主观判断 5-9，单一明确事实 10-14，多项数据或官方事实 15-20。
+- 定价时效与可交易性：无明确交易含义 0-4，中长期线索 5-9，近期可验证 10-14，短期直接影响定价 15-20。
+- 影响持续性：日内噪音 0-2，数日到数周 3-5，季度级 6-8，结构性 9-10。
+校准锚点：例行复盘约 15-30，局部边际信息约 31-45，方向清晰但影响有限约 46-60，重要交易信号约 61-75，重大跨资产重定价约 76-90，90 以上仅限极少数系统性事件。不得因文章是研报就默认给 65、70、75；不要刻意取 5 的倍数，必须使用上述分项的实际总和。单一机构的主观判断不得仅因措辞强烈而获得高分。
 
 关键词规则：
 5. 输出 1-8 个互不重复的 keywords，按市场影响的重要性降序。topic 使用 2-12 个汉字或常用市场缩写，必须落到原文中的具体政策操作、数据变化、资金行为、行业线索或定价主题，读者只看 topic 也应知道文章在讨论什么。禁止输出“市场、政策、经济、利率、债券、股票、风险、宏观基本面、外部约束、市场影响、政策预期、货币政策预期”等空泛词；若初步概括仍属于这类上位词，必须继续用原文事实收窄。例如将“货币政策预期”改为“降准降息观察期”“隔夜逆回购重启”或“DR001宽松区间”，具体选择取决于原文证据。
 6. 合并同义词、上下位概念和同一因果链中的近义信号。例如“货币政策预期”和“降准降息概率”应合并并收窄为“降准降息预期”；只有事实依据、传导机制或资产影响彼此独立时才拆成多个 topic。
-7. interpretation 说明事实背后的定价或传导含义。impact 直接写该事项会影响哪些市场、资产或行业，以及方向和机制，不要套用“权益：……；利率债：……”等固定分栏。相较其他市场，优先分析权益和固收，但只写原文证据能够支持的影响，不强行覆盖两个市场；原文没有足够证据时明确写“证据不足”，不得机械写“中性”。
-8. summary 用 80-220 个汉字概括核心结论、主要依据和最重要的资产影响，保持简练。
+7. interpretation 说明事实背后的定价或传导含义。impact 必须是一至两句可直接用于投资判断的明确观点，写清主要受影响的资产或行业、方向以及关键机制或成立条件。优先使用“利多/利空、推高/压低、提振/压制、扩大/收窄、增加/降低”等有方向的词。禁止只写“影响定价逻辑”“引导走势”“影响整体走势”“影响风险偏好”“值得关注”“带来影响”“存在不确定性”等没有方向的空话。例如：“影响债市利率定价逻辑，引导长端利率走势”应改为“隔夜逆回购缓解税期资金压力，短期利多长端利率债并压低收益率”；“影响科技板块整体走势及市场风险偏好”应改为“光通信权重企稳可提振科技板块风险偏好，若放量转跌则将加大成长股抛压”。若原文证据不足以形成明确观点，就不要输出该 keyword，而不是给出模糊 impact。相较其他市场优先分析权益和固收，但不强行覆盖两个市场。
+8. summary 仅用一句、约 50 个汉字（建议 40-60 个汉字）概括核心结论、最关键依据和首要市场影响；删除背景铺陈、标题复述和次要细节。
 9. 输出必须是一个合法 JSON 对象，不要输出 Markdown、代码围栏、注释或思考过程。`;
 
 export async function extractArticleFeatures(
@@ -116,29 +117,89 @@ export function buildAiSearchMetadata(
   };
 }
 
+export function buildR2Metadata(
+  features: ArticleFeatures,
+  publishedAt: string,
+): Record<string, string> {
+  return {
+    author: features.author,
+    summary: features.summary,
+    importance: String(features.importance),
+    keywords: features.keywords.map((keyword) => keyword.topic).join(","),
+    published_at: new Date(publishedAt).toISOString(),
+  };
+}
+
 export async function saveArticleFeatures(
   database: D1Database,
   articleId: string,
   features: ArticleFeatures,
-  extractedAt: string,
+  updatedAt: string,
 ): Promise<void> {
-  const statements = [
-    database
-      .prepare(`
-        UPDATE article
-        SET author = ?, summary = ?, importance = ?, feature_model = ?,
-            feature_prompt_version = ?, feature_extracted_at = ?
-        WHERE article_id = ?
-      `)
-      .bind(
-        features.author,
-        features.summary,
-        features.importance,
-        ARTICLE_FEATURE_MODEL,
-        ARTICLE_FEATURE_PROMPT_VERSION,
-        extractedAt,
+  let results: D1Result[];
+  try {
+    results = await database.batch(
+      featureStatements(
+        database,
+        database
+          .prepare(`
+            UPDATE article
+            SET author = ?, summary = ?, importance = ?, prompt_version = ?, updated_at = ?
+            WHERE id = ?
+          `)
+          .bind(
+            features.author,
+            features.summary,
+            features.importance,
+            ARTICLE_FEATURE_PROMPT_VERSION,
+            updatedAt,
+            articleId,
+          ),
         articleId,
+        features,
       ),
+    );
+  } catch (error) {
+    if (!(error instanceof Error) || !/no such column: (?:prompt_version|id)/.test(error.message)) {
+      throw error;
+    }
+    results = await database.batch(
+      featureStatements(
+        database,
+        database
+          .prepare(`
+            UPDATE article
+            SET author = ?, summary = ?, importance = ?, feature_model = ?,
+                feature_prompt_version = ?, feature_extracted_at = ?
+            WHERE article_id = ?
+          `)
+          .bind(
+            features.author,
+            features.summary,
+            features.importance,
+            ARTICLE_FEATURE_MODEL,
+            "article-features-v4",
+            updatedAt,
+            articleId,
+          ),
+        articleId,
+        features,
+      ),
+    );
+  }
+  if ((results[0]?.meta.changes ?? 0) !== 1) {
+    throw new Error(`article not found while storing features: ${articleId}`);
+  }
+}
+
+function featureStatements(
+  database: D1Database,
+  update: D1PreparedStatement,
+  articleId: string,
+  features: ArticleFeatures,
+): D1PreparedStatement[] {
+  return [
+    update,
     database.prepare("DELETE FROM keyword WHERE article_id = ?").bind(articleId),
     ...features.keywords.map((keyword, ordinal) =>
       database
@@ -156,10 +217,6 @@ export async function saveArticleFeatures(
         ),
     ),
   ];
-  const results = await database.batch(statements);
-  if ((results[0]?.meta.changes ?? 0) !== 1) {
-    throw new Error(`article not found while storing features: ${articleId}`);
-  }
 }
 
 function extractInferencePayload(output: unknown): unknown {

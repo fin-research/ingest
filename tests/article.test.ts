@@ -22,6 +22,8 @@ const article = {
 describe("research report helpers", () => {
   it("validates metadata and builds stable workflow and R2 identities", () => {
     const parsed = validateArticleMetadata(article);
+    expect(parsed).toMatchObject({ id: "2026081100010555370", newsId: "N1" });
+    expect(parsed).not.toHaveProperty("sentimentId");
     expect(workflowInstanceId(parsed)).toBe("article-2026081100010555370");
     expect(articleObjectKey(parsed)).toBe("2026-08-11/信用_市场解读.md");
   });
