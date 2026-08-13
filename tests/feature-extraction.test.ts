@@ -37,8 +37,9 @@ describe("article feature extraction", () => {
     expect(request.messages[0]?.content).toContain("若初步概括仍属于这类上位词");
     expect(request.messages[0]?.content).toContain("可直接用于投资判断的明确观点");
     expect(request.messages[0]?.content).toContain("不得因文章是研报就默认给 65、70、75");
-    expect(request.messages[0]?.content).toContain("禁止只写“影响定价逻辑”");
-    expect(request.messages[0]?.content).toContain("建议 40-60 个汉字");
+    expect(request.messages[0]?.content).toContain("任何包含“影响/引导/改变定价逻辑”");
+    expect(request.messages[0]?.content).toContain("即使同一句后半段有方向也必须删除空泛分句");
+    expect(request.messages[0]?.content).toContain("硬性不得超过 60 个汉字");
     expect(request.messages[1]?.content).toContain(markdown);
     expect(request.messages[1]?.content).not.toContain("权益：影响；利率债：影响");
     expect(request.messages[1]?.content).not.toContain("中间部分已省略");
