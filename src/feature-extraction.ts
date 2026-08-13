@@ -136,57 +136,27 @@ export async function saveArticleFeatures(
   features: ArticleFeatures,
   updatedAt: string,
 ): Promise<void> {
-  let results: D1Result[];
-  try {
-    results = await database.batch(
-      featureStatements(
-        database,
-        database
-          .prepare(`
-            UPDATE article
-            SET author = ?, summary = ?, importance = ?, prompt_version = ?, updated_at = ?
-            WHERE id = ?
-          `)
-          .bind(
-            features.author,
-            features.summary,
-            features.importance,
-            ARTICLE_FEATURE_PROMPT_VERSION,
-            updatedAt,
-            articleId,
-          ),
-        articleId,
-        features,
-      ),
-    );
-  } catch (error) {
-    if (!(error instanceof Error) || !/no such column: (?:prompt_version|id)/.test(error.message)) {
-      throw error;
-    }
-    results = await database.batch(
-      featureStatements(
-        database,
-        database
-          .prepare(`
-            UPDATE article
-            SET author = ?, summary = ?, importance = ?, feature_model = ?,
-                feature_prompt_version = ?, feature_extracted_at = ?
-            WHERE article_id = ?
-          `)
-          .bind(
-            features.author,
-            features.summary,
-            features.importance,
-            ARTICLE_FEATURE_MODEL,
-            "article-features-v4",
-            updatedAt,
-            articleId,
-          ),
-        articleId,
-        features,
-      ),
-    );
-  }
+  const results = await database.batch(
+    featureStatements(
+      database,
+      database
+        .prepare(`
+          UPDATE article
+          SET author = ?, summary = ?, importance = ?, prompt_version = ?, updated_at = ?
+          WHERE id = ?
+        `)
+        .bind(
+          features.author,
+          features.summary,
+          features.importance,
+          ARTICLE_FEATURE_PROMPT_VERSION,
+          updatedAt,
+          articleId,
+        ),
+      articleId,
+      features,
+    ),
+  );
   if ((results[0]?.meta.changes ?? 0) !== 1) {
     throw new Error(`article not found while storing features: ${articleId}`);
   }

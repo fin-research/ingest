@@ -81,64 +81,32 @@ export class D1ArticleRepository implements ArticleRepository {
     const uniqueIds = [...new Set(ids)];
     if (uniqueIds.length === 0) return new Set();
     const placeholders = uniqueIds.map(() => "?").join(", ");
-    try {
-      const result = await this.database
-        .prepare(`SELECT id FROM article WHERE id IN (${placeholders})`)
-        .bind(...uniqueIds)
-        .all<{ id: string }>();
-      return new Set(result.results.map((row) => row.id));
-    } catch (error) {
-      if (!isLegacyArticleSchemaError(error)) throw error;
-      const result = await this.database
-        .prepare(`SELECT article_id FROM article WHERE article_id IN (${placeholders})`)
-        .bind(...uniqueIds)
-        .all<{ article_id: string }>();
-      return new Set(result.results.map((row) => row.article_id));
-    }
+    const result = await this.database
+      .prepare(`SELECT id FROM article WHERE id IN (${placeholders})`)
+      .bind(...uniqueIds)
+      .all<{ id: string }>();
+    return new Set(result.results.map((row) => row.id));
   }
 
   async insertIfAbsent(articles: ArticleMetadata[], createdAt: string): Promise<ArticleMetadata[]> {
     if (articles.length === 0) return [];
-    let results: D1Result[];
-    try {
-      const statement = this.database.prepare(`
-        INSERT INTO article (id, news_id, title, published_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO NOTHING
-      `);
-      results = await this.database.batch(
-        articles.map((article) =>
-          statement.bind(
-            article.id,
-            article.newsId ?? null,
-            article.title,
-            article.publishedAt,
-            createdAt,
-            createdAt,
-          ),
+    const statement = this.database.prepare(`
+      INSERT INTO article (id, news_id, title, published_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO NOTHING
+    `);
+    const results = await this.database.batch(
+      articles.map((article) =>
+        statement.bind(
+          article.id,
+          article.newsId ?? null,
+          article.title,
+          article.publishedAt,
+          createdAt,
+          createdAt,
         ),
-      );
-    } catch (error) {
-      if (!isLegacyArticleSchemaError(error)) throw error;
-      const statement = this.database.prepare(`
-        INSERT INTO article (
-          article_id, sentiment_id, news_id, title, published_at, discovered_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(article_id) DO NOTHING
-      `);
-      results = await this.database.batch(
-        articles.map((article) =>
-          statement.bind(
-            article.id,
-            article.id,
-            article.newsId ?? null,
-            article.title,
-            article.publishedAt,
-            createdAt,
-          ),
-        ),
-      );
-    }
+      ),
+    );
     return articles.filter((_, index) => (results[index]?.meta.changes ?? 0) > 0);
   }
 
@@ -146,18 +114,10 @@ export class D1ArticleRepository implements ArticleRepository {
     const uniqueIds = [...new Set(ids)];
     if (uniqueIds.length === 0) return;
     const placeholders = uniqueIds.map(() => "?").join(", ");
-    try {
-      await this.database
-        .prepare(`DELETE FROM article WHERE id IN (${placeholders})`)
-        .bind(...uniqueIds)
-        .run();
-    } catch (error) {
-      if (!isLegacyArticleSchemaError(error)) throw error;
-      await this.database
-        .prepare(`DELETE FROM article WHERE article_id IN (${placeholders})`)
-        .bind(...uniqueIds)
-        .run();
-    }
+    await this.database
+      .prepare(`DELETE FROM article WHERE id IN (${placeholders})`)
+      .bind(...uniqueIds)
+      .run();
   }
 }
 
@@ -166,24 +126,12 @@ export async function updateArticleLink(
   articleId: string,
   link: string,
 ): Promise<void> {
-  try {
-    await database
-      .prepare(
-        "UPDATE article SET link = ?, updated_at = ? WHERE id = ? AND (link IS NULL OR link != ?)",
-      )
-      .bind(link, new Date().toISOString(), articleId, link)
-      .run();
-  } catch (error) {
-    if (!isLegacyArticleSchemaError(error)) throw error;
-    await database
-      .prepare("UPDATE article SET link = ? WHERE article_id = ? AND (link IS NULL OR link != ?)")
-      .bind(link, articleId, link)
-      .run();
-  }
-}
-
-function isLegacyArticleSchemaError(error: unknown): boolean {
-  return error instanceof Error && /no such column: (?:id|created_at|updated_at)/.test(error.message);
+  await database
+    .prepare(
+      "UPDATE article SET link = ?, updated_at = ? WHERE id = ? AND (link IS NULL OR link != ?)",
+    )
+    .bind(link, new Date().toISOString(), articleId, link)
+    .run();
 }
 
 class CloudflareArticleWorkflowLauncher implements ArticleWorkflowLauncher {
