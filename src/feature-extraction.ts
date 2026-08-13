@@ -1,21 +1,7 @@
 export const ARTICLE_FEATURE_MODEL = "@cf/google/gemma-4-26b-a4b-it" as const;
-export const ARTICLE_FEATURE_PROMPT_VERSION = "article-features-v3";
+export const ARTICLE_FEATURE_PROMPT_VERSION = "article-features-v4";
 
 const MAX_KEYWORDS = 8;
-const GENERIC_TOPICS = new Set([
-  "市场",
-  "政策",
-  "经济",
-  "利率",
-  "债券",
-  "股票",
-  "风险",
-  "宏观基本面",
-  "外部约束",
-  "市场影响",
-  "政策预期",
-  "货币政策预期",
-]);
 
 export interface ArticleKeyword {
   topic: string;
@@ -63,9 +49,9 @@ const SYSTEM_PROMPT = `/no_think
 单一机构的主观判断不得仅因措辞强烈而获得高分。
 
 关键词规则：
-5. 输出 1-8 个互不重复的 keywords，按对权益/利率影响的重要性降序；topic 使用 2-12 个汉字或常用市场缩写，必须点明具体政策操作、数据变化、资金行为或定价主题。禁止使用“市场、政策、经济、利率、债券、股票、风险、宏观基本面、外部约束、市场影响、政策预期、货币政策预期”等空泛词。
-6. 合并同义词、上下位概念和同一因果链中的近义信号。例如“货币政策预期”和“降准降息概率”应合并为“降准降息预期”；只有事实依据、传导机制或资产影响彼此独立时才拆成多个 topic。
-7. interpretation 说明事实背后的定价或传导含义；impact 必须分别交代“权益”和“利率债”的方向与机制。原文没有足够证据时明确写“证据不足”，不得机械写“中性”。
+5. 输出 1-8 个互不重复的 keywords，按市场影响的重要性降序。topic 使用 2-12 个汉字或常用市场缩写，必须落到原文中的具体政策操作、数据变化、资金行为、行业线索或定价主题，读者只看 topic 也应知道文章在讨论什么。禁止输出“市场、政策、经济、利率、债券、股票、风险、宏观基本面、外部约束、市场影响、政策预期、货币政策预期”等空泛词；若初步概括仍属于这类上位词，必须继续用原文事实收窄。例如将“货币政策预期”改为“降准降息观察期”“隔夜逆回购重启”或“DR001宽松区间”，具体选择取决于原文证据。
+6. 合并同义词、上下位概念和同一因果链中的近义信号。例如“货币政策预期”和“降准降息概率”应合并并收窄为“降准降息预期”；只有事实依据、传导机制或资产影响彼此独立时才拆成多个 topic。
+7. interpretation 说明事实背后的定价或传导含义。impact 直接写该事项会影响哪些市场、资产或行业，以及方向和机制，不要套用“权益：……；利率债：……”等固定分栏。相较其他市场，优先分析权益和固收，但只写原文证据能够支持的影响，不强行覆盖两个市场；原文没有足够证据时明确写“证据不足”，不得机械写“中性”。
 8. summary 用 80-220 个汉字概括核心结论、主要依据和最重要的资产影响，保持简练。
 9. 输出必须是一个合法 JSON 对象，不要输出 Markdown、代码围栏、注释或思考过程。`;
 
@@ -87,7 +73,7 @@ export function buildFeatureInferenceRequest(
       { role: "system", content: SYSTEM_PROMPT },
       {
         role: "user",
-        content: `输入标题：${title}\n\n输入正文：\n${markdown}\n\n严格输出结构：\n{"title":"标题","author":"机构/研究业务团队（如华泰固收）","summary":"摘要（简练）","importance":70,"keywords":[{"topic":"主题","fact":"事实或原文观点","interpretation":"归纳含义","impact":"权益：影响；利率债：影响"}]}`,
+        content: `输入标题：${title}\n\n输入正文：\n${markdown}\n\n严格输出结构：\n{"title":"标题","author":"机构/研究业务团队（如华泰固收）","summary":"摘要（简练）","importance":70,"keywords":[{"topic":"具体主题","fact":"事实或原文观点","interpretation":"归纳含义","impact":"直接表述受影响的市场、资产或行业及其方向和机制"}]}`,
       },
     ],
     temperature: 0.1,
@@ -115,9 +101,19 @@ export function validateArticleFeatures(value: unknown, expectedTitle: string): 
   const keywords = row.keywords.map((item, index) => validateKeyword(item, index));
   const topics = new Set(keywords.map((keyword) => keyword.topic));
   if (topics.size !== keywords.length) throw new Error("keyword topics must be unique");
-  const genericTopic = keywords.find((keyword) => GENERIC_TOPICS.has(keyword.topic));
-  if (genericTopic) throw new Error(`keyword topic is too generic: ${genericTopic.topic}`);
   return { title: expectedTitle, author, summary, importance: importance as number, keywords };
+}
+
+export function buildAiSearchMetadata(
+  features: ArticleFeatures,
+  publishedAt: string,
+): Record<string, string> {
+  return {
+    source: features.author,
+    tags: features.keywords.map((keyword) => keyword.topic).join(","),
+    importance: String(features.importance),
+    published_at: new Date(publishedAt).toISOString(),
+  };
 }
 
 export async function saveArticleFeatures(

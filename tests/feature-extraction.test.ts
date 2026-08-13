@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildAiSearchMetadata,
   buildFeatureInferenceRequest,
   extractArticleFeatures,
   validateArticleFeatures,
@@ -16,7 +17,7 @@ const validFeatures = {
       topic: "降准降息预期",
       fact: "研报认为基本面与银行息差约束减弱，宽松预期有合理性。",
       interpretation: "政策宽松概率上升，但落地时点仍有不确定性。",
-      impact: "权益：流动性预期改善或提振估值；利率债：宽松预期利多，但需防范预期抢跑。",
+      impact: "流动性改善预期可能提振股票估值并利多利率债，但债券定价需防范宽松预期抢跑。",
     },
   ],
 };
@@ -32,7 +33,10 @@ describe("article feature extraction", () => {
     expect(request.chat_template_kwargs.enable_thinking).toBe(false);
     expect(request.max_completion_tokens).toBe(4_000);
     expect(request.messages[0]?.content).toContain("输出“国海固收”");
+    expect(request.messages[0]?.content).toContain("若初步概括仍属于这类上位词");
+    expect(request.messages[0]?.content).toContain("不要套用“权益：……；利率债：……”");
     expect(request.messages[1]?.content).toContain(markdown);
+    expect(request.messages[1]?.content).not.toContain("权益：影响；利率债：影响");
     expect(request.messages[1]?.content).not.toContain("中间部分已省略");
   });
 
@@ -60,7 +64,7 @@ describe("article feature extraction", () => {
     expect(extracted).toEqual(validFeatures);
   });
 
-  it("rejects invalid importance and duplicate topics", () => {
+  it("rejects invalid importance and duplicate topics without enforcing topic wording", () => {
     expect(() =>
       validateArticleFeatures({ ...validFeatures, importance: 101 }, validFeatures.title),
     ).toThrow("importance");
@@ -70,14 +74,31 @@ describe("article feature extraction", () => {
         validFeatures.title,
       ),
     ).toThrow("unique");
-    expect(() =>
+    expect(
       validateArticleFeatures(
         {
           ...validFeatures,
-          keywords: [{ ...validFeatures.keywords[0], topic: "宏观基本面" }],
+          keywords: [{ ...validFeatures.keywords[0], topic: "货币政策预期" }],
         },
         validFeatures.title,
-      ),
-    ).toThrow("generic");
+      ).keywords[0]?.topic,
+    ).toBe("货币政策预期");
+  });
+
+  it("builds AI Search metadata from extracted features", () => {
+    const features = {
+      ...validFeatures,
+      keywords: [
+        validFeatures.keywords[0],
+        { ...validFeatures.keywords[0], topic: "隔夜逆回购重启" },
+      ],
+    };
+
+    expect(buildAiSearchMetadata(features, "2026-08-13T01:02:03Z")).toEqual({
+      source: "国海固收",
+      tags: "降准降息预期,隔夜逆回购重启",
+      importance: "72",
+      published_at: "2026-08-13T01:02:03.000Z",
+    });
   });
 });

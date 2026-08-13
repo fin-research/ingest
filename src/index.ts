@@ -14,6 +14,7 @@ import { uploadAndWaitForAiSearch } from "./ai-search";
 import {
   ARTICLE_FEATURE_MODEL,
   ARTICLE_FEATURE_PROMPT_VERSION,
+  buildAiSearchMetadata,
   extractArticleFeatures,
   saveArticleFeatures,
   validateArticleFeatures,
@@ -123,7 +124,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
           archived.key,
           markdown,
           {
-            metadata: { published_at: new Date(article.publishedAt).toISOString() },
+            metadata: buildAiSearchMetadata(extracted, article.publishedAt),
             timeoutMs: AI_SEARCH_POLL_TIMEOUT_MS,
             pollIntervalMs: AI_SEARCH_POLL_INTERVAL_MS,
             fileContentEmptyRetries: 1,

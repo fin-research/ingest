@@ -35,10 +35,10 @@ describe("article workflow steps", () => {
             importance: 60,
             keywords: [
               {
-                topic: "测试主题",
+                topic: "货币政策预期",
                 fact: "原文事实",
                 interpretation: "归纳含义",
-                impact: "权益：影响；利率债：影响",
+                impact: "流动性预期改善可能同时影响股票估值与利率债定价。",
               },
             ],
           },

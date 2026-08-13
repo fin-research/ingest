@@ -14,14 +14,14 @@ interface AiSearchItemsClient {
   upload(
     name: string,
     content: ReadableStream | Blob | string,
-    options?: { metadata?: Record<string, unknown> },
+    options?: { metadata?: Record<string, string> },
   ): Promise<AiSearchItemSnapshot>;
   get(itemId: string): { info(): Promise<AiSearchItemSnapshot> };
   delete(itemId: string): Promise<void>;
 }
 
 interface UploadAndWaitOptions {
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, string>;
   timeoutMs: number;
   pollIntervalMs: number;
   fileContentEmptyRetries: number;
