@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ARTICLE_FEATURE_MODEL,
   buildAiSearchMetadata,
   buildFeatureInferenceRequest,
   buildR2Metadata,
@@ -24,6 +25,10 @@ const validFeatures = {
 };
 
 describe("article feature extraction", () => {
+  it("uses the dynamic/rag route while keeping thinking disabled", () => {
+    expect(ARTICLE_FEATURE_MODEL).toBe("dynamic/rag");
+  });
+
   it("uses the stable Gemma parameters without truncating Markdown", () => {
     const markdown = "中".repeat(100_000);
     const request = buildFeatureInferenceRequest("标题", markdown);

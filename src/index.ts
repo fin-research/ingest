@@ -62,7 +62,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
 
     const extracted = validateArticleFeatures(
       await step.do(
-        "extract article features with Gemma 4",
+        "extract article features with dynamic/rag",
         { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" }, timeout: "5 minutes" },
         async () => {
           return await extractArticleFeatures(
@@ -78,7 +78,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
                   },
                   requestTimeoutMs: 120_000,
                 },
-                tags: ["eastmoney", "feature-extraction", "model:gemma4"],
+                tags: ["eastmoney", "feature-extraction", "model:dynamic-rag"],
               }),
             article.title,
             markdown,
