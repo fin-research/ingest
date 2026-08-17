@@ -1,7 +1,34 @@
-export const ARTICLE_FEATURE_MODEL = "@cf/google/gemma-4-26b-a4b-it" as const;
-export const ARTICLE_FEATURE_PROMPT_VERSION = "v2";
+export const ARTICLE_FEATURE_MODEL = "dynamic/rag" as const;
+export const ARTICLE_FEATURE_PROMPT_VERSION = "v3";
 
 const MAX_KEYWORDS = 8;
+export const ARTICLE_FEATURE_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: { type: "string" },
+    author: { type: "string" },
+    summary: { type: "string" },
+    importance: { type: "integer", minimum: 0, maximum: 100 },
+    keywords: {
+      type: "array",
+      minItems: 1,
+      maxItems: 8,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          topic: { type: "string" },
+          fact: { type: "string" },
+          interpretation: { type: "string" },
+          impact: { type: "string" },
+        },
+        required: ["topic", "fact", "interpretation", "impact"],
+      },
+    },
+  },
+  required: ["title", "author", "summary", "importance", "keywords"],
+} as const;
 
 export interface ArticleKeyword {
   topic: string;
@@ -21,17 +48,22 @@ export interface ArticleFeatures {
 export interface FeatureInferenceRequest {
   messages: Array<{ role: "system" | "user"; content: string }>;
   temperature: number;
-  top_p: number;
   seed: number;
-  reasoning_effort: "low";
-  chat_template_kwargs: { enable_thinking: false };
+  reasoning_effort: "max";
   max_completion_tokens: number;
-  response_format: { type: "json_object" };
+  response_format: {
+    type: "json_schema";
+    json_schema: {
+      name: string;
+      strict: true;
+      schema: typeof ARTICLE_FEATURE_RESPONSE_SCHEMA;
+    };
+  };
 }
 
 export type FeatureInferenceRunner = (request: FeatureInferenceRequest) => Promise<unknown>;
 
-const SYSTEM_PROMPT = `/no_think
+const SYSTEM_PROMPT = `
 你是服务于专业投资者的中国资本市场研报分析员。请从单篇研报中抽取可核验的结构化特征，重点判断其对权益和固收利率的影响。
 
 证据边界：
@@ -78,12 +110,17 @@ export function buildFeatureInferenceRequest(
       },
     ],
     temperature: 0.1,
-    top_p: 0.85,
     seed: 20260812,
-    reasoning_effort: "low",
-    chat_template_kwargs: { enable_thinking: false },
+    reasoning_effort: "max",
     max_completion_tokens: 4_000,
-    response_format: { type: "json_object" },
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "article_features",
+        strict: true,
+        schema: ARTICLE_FEATURE_RESPONSE_SCHEMA,
+      },
+    },
   };
 }
 
