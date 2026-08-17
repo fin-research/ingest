@@ -1,5 +1,5 @@
 export const ARTICLE_FEATURE_MODEL = "dynamic/rag" as const;
-export const ARTICLE_FEATURE_PROMPT_VERSION = "v3";
+export const ARTICLE_FEATURE_PROMPT_VERSION = "v4";
 
 const MAX_KEYWORDS = 8;
 export const ARTICLE_FEATURE_RESPONSE_SCHEMA = {
@@ -49,7 +49,8 @@ export interface FeatureInferenceRequest {
   messages: Array<{ role: "system" | "user"; content: string }>;
   temperature: number;
   seed: number;
-  reasoning_effort: "max";
+  reasoning_effort: "low";
+  chat_template_kwargs: { enable_thinking: false };
   max_completion_tokens: number;
   response_format: {
     type: "json_schema";
@@ -111,7 +112,8 @@ export function buildFeatureInferenceRequest(
     ],
     temperature: 0.1,
     seed: 20260812,
-    reasoning_effort: "max",
+    reasoning_effort: "low",
+    chat_template_kwargs: { enable_thinking: false },
     max_completion_tokens: 4_000,
     response_format: {
       type: "json_schema",

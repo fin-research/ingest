@@ -29,7 +29,8 @@ describe("article feature extraction", () => {
     const request = buildFeatureInferenceRequest("标题", markdown);
 
     expect(request.temperature).toBe(0.1);
-    expect(request.reasoning_effort).toBe("max");
+    expect(request.reasoning_effort).toBe("low");
+    expect(request.chat_template_kwargs.enable_thinking).toBe(false);
     expect(request.response_format.type).toBe("json_schema");
     expect(request.response_format.json_schema.schema.properties.title.type).toBe("string");
     expect(request.max_completion_tokens).toBe(4_000);
