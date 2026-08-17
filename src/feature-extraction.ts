@@ -1,4 +1,4 @@
-export const ARTICLE_FEATURE_MODEL = "dynamic/rag" as const;
+export const ARTICLE_FEATURE_MODEL = "@cf/google/gemma-4-26b-a4b-it" as const;
 export const ARTICLE_FEATURE_PROMPT_VERSION = "v4";
 
 const MAX_KEYWORDS = 8;

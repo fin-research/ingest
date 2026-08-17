@@ -62,31 +62,24 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
 
     const extracted = validateArticleFeatures(
       await step.do(
-        "extract article features with dynamic/rag",
+        "extract article features with Gemma 4",
         { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" }, timeout: "5 minutes" },
         async () => {
           return await extractArticleFeatures(
-            async (input) => {
-              const metadata = {
-                article_id: article.id,
-                prompt_version: ARTICLE_FEATURE_PROMPT_VERSION,
-                tags: "eastmoney,feature-extraction,model:dynamic-rag",
-              };
-              const response = await this.env.AI.gateway(this.env.AI_GATEWAY_ID).run(
-                {
-                  provider: "compat",
-                  endpoint: "chat/completions",
-                  headers: {
-                    "cf-aig-skip-cache": "true",
-                    "cf-aig-collect-log": "true",
-                    "cf-aig-request-timeout": String(120_000),
-                    "cf-aig-metadata": JSON.stringify(metadata),
+            async (input) =>
+              await this.env.AI.run(ARTICLE_FEATURE_MODEL, input, {
+                gateway: {
+                  id: this.env.AI_GATEWAY_ID,
+                  skipCache: true,
+                  collectLog: true,
+                  requestTimeoutMs: 120_000,
+                  metadata: {
+                    article_id: article.id,
+                    prompt_version: ARTICLE_FEATURE_PROMPT_VERSION,
                   },
-                  query: { model: ARTICLE_FEATURE_MODEL, ...input },
                 },
-              );
-              return response.json();
-            },
+                tags: ["eastmoney", "feature-extraction", "model:gemma4"],
+              }),
             article.title,
             markdown,
           );

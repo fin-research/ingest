@@ -5,6 +5,7 @@ import {
   buildFeatureInferenceRequest,
   buildR2Metadata,
   extractArticleFeatures,
+  ARTICLE_FEATURE_MODEL,
   validateArticleFeatures,
 } from "../src/feature-extraction";
 
@@ -24,7 +25,8 @@ const validFeatures = {
 };
 
 describe("article feature extraction", () => {
-  it("uses dynamic/rag JSON parameters without truncating Markdown", () => {
+  it("uses Gemma 4 native binding JSON parameters without truncating Markdown", () => {
+    expect(ARTICLE_FEATURE_MODEL).toBe("@cf/google/gemma-4-26b-a4b-it");
     const markdown = "中".repeat(100_000);
     const request = buildFeatureInferenceRequest("标题", markdown);
 
