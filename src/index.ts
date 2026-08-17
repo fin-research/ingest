@@ -72,11 +72,11 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
                   id: this.env.AI_GATEWAY_ID,
                   skipCache: true,
                   collectLog: true,
-                  requestTimeoutMs: 120_000,
                   metadata: {
                     article_id: article.id,
                     prompt_version: ARTICLE_FEATURE_PROMPT_VERSION,
                   },
+                  requestTimeoutMs: 120_000,
                 },
                 tags: ["eastmoney", "feature-extraction", "model:gemma4"],
               }),
