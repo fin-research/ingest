@@ -35,15 +35,19 @@ export async function runDynamicRoute(
     {
       provider: "compat",
       endpoint: "chat/completions",
-      headers: {
-        "cf-aig-skip-cache": true,
-        "cf-aig-collect-log": true,
-        "cf-aig-request-timeout": options.requestTimeoutMs,
-        "cf-aig-metadata": options.metadata,
-      },
+      headers: {},
       query,
     },
-    { signal: AbortSignal.timeout(options.requestTimeoutMs + 5_000) },
+    {
+      gateway: {
+        id: gatewayId,
+        skipCache: true,
+        collectLog: true,
+        requestTimeoutMs: options.requestTimeoutMs,
+        metadata: options.metadata,
+      },
+      signal: AbortSignal.timeout(options.requestTimeoutMs + 5_000),
+    },
   );
   const text = await readTextBounded(response, MAX_AI_GATEWAY_RESPONSE_BYTES);
   const gatewayLogId = response.headers.get("cf-aig-log-id") ?? "";

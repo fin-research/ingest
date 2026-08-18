@@ -4,11 +4,18 @@ import { runDynamicRoute } from "../src/ai-gateway";
 
 describe("AI Gateway dynamic route", () => {
   it("uses the compat gateway binding with observability headers", async () => {
-    const calls: Array<{ gatewayId: string; request: AIGatewayUniversalRequest }> = [];
+    const calls: Array<{
+      gatewayId: string;
+      request: AIGatewayUniversalRequest;
+      options: { gateway?: UniversalGatewayOptions; signal?: AbortSignal } | undefined;
+    }> = [];
     const ai = {
       gateway: (gatewayId: string) => ({
-        run: async (request: AIGatewayUniversalRequest) => {
-          calls.push({ gatewayId, request });
+        run: async (
+          request: AIGatewayUniversalRequest,
+          options?: { gateway?: UniversalGatewayOptions; signal?: AbortSignal },
+        ) => {
+          calls.push({ gatewayId, request, options });
           return Response.json({ choices: [{ message: { content: "OK" } }] });
         },
       }),
@@ -29,11 +36,13 @@ describe("AI Gateway dynamic route", () => {
     expect(calls[0]?.request.provider).toBe("compat");
     expect(calls[0]?.request.endpoint).toBe("chat/completions");
     expect(calls[0]?.request.query).toMatchObject({ model: "dynamic/rag" });
-    expect(calls[0]?.request.headers).toMatchObject({
-      "cf-aig-skip-cache": true,
-      "cf-aig-collect-log": true,
-      "cf-aig-request-timeout": 120_000,
-      "cf-aig-metadata": { article_id: "A001", prompt_version: "v2" },
+    expect(calls[0]?.request.headers).toEqual({});
+    expect(calls[0]?.options?.gateway).toMatchObject({
+      id: "default",
+      skipCache: true,
+      collectLog: true,
+      requestTimeoutMs: 120_000,
+      metadata: { article_id: "A001", prompt_version: "v2" },
     });
   });
 
