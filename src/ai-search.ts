@@ -25,6 +25,7 @@ interface UploadAndWaitOptions {
   timeoutMs: number;
   pollIntervalMs: number;
   fileContentEmptyRetries: number;
+  transientErrorRetries?: number;
   wait?: (delayMs: number) => Promise<void>;
   now?: () => number;
 }
@@ -45,6 +46,7 @@ export async function uploadAndWaitForAiSearch(
   }
 
   let fileContentEmptyRetries = 0;
+  let transientErrorRetries = 0;
   while (true) {
     while (item.status === "queued" || item.status === "running") {
       const remainingMs = deadline - now();
@@ -55,16 +57,29 @@ export async function uploadAndWaitForAiSearch(
       item = await items.get(item.id).info();
     }
 
-    if (
-      item.status !== "error" ||
-      item.error !== "file_content_empty" ||
-      fileContentEmptyRetries >= options.fileContentEmptyRetries
-    ) {
+    if (item.status !== "error") {
       return item;
     }
 
+    const retriesFileContentEmpty =
+      item.error === "file_content_empty" &&
+      fileContentEmptyRetries < options.fileContentEmptyRetries;
+    const retriesTransientCapacity =
+      item.error === "workers_ai_out_of_capacity_error" &&
+      transientErrorRetries < (options.transientErrorRetries ?? 0);
+    if (!retriesFileContentEmpty && !retriesTransientCapacity) return item;
+
     await items.delete(item.id);
-    fileContentEmptyRetries += 1;
+    if (retriesFileContentEmpty) {
+      fileContentEmptyRetries += 1;
+    } else {
+      transientErrorRetries += 1;
+      const remainingMs = deadline - now();
+      if (remainingMs <= 0) {
+        throw new Error(`AI Search indexing timed out for ${key} after ${options.timeoutMs}ms`);
+      }
+      await wait(Math.min(options.pollIntervalMs, remainingMs));
+    }
     item = await items.upload(key, content, { metadata: options.metadata });
   }
 }

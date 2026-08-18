@@ -112,6 +112,52 @@ describe("AI Search upload polling", () => {
     expect(deleted).toEqual(["item-1"]);
   });
 
+  it("backs off and reuploads after a transient Workers AI capacity error", async () => {
+    let uploads = 0;
+    const waits: number[] = [];
+    const deleted: string[] = [];
+    const items: AiSearchItemsClient = {
+      async list() {
+        return {
+          result: [
+            { ...item("error"), error: "workers_ai_out_of_capacity_error" },
+          ],
+        };
+      },
+      async upload() {
+        uploads += 1;
+        return item("completed");
+      },
+      get() {
+        return { info: async () => item("completed") };
+      },
+      async delete(itemId) {
+        deleted.push(itemId);
+      },
+    };
+
+    const result = await uploadAndWaitForAiSearch(
+      items,
+      "2026-08-11/article.md",
+      "正文。 ",
+      {
+        timeoutMs: 480_000,
+        pollIntervalMs: 5_000,
+        fileContentEmptyRetries: 1,
+        transientErrorRetries: 2,
+        wait: async (delayMs) => {
+          waits.push(delayMs);
+        },
+        now: () => 0,
+      },
+    );
+
+    expect(result.status).toBe("completed");
+    expect(uploads).toBe(1);
+    expect(deleted).toEqual(["item-1"]);
+    expect(waits).toEqual([5_000]);
+  });
+
   it("fails after the configured overall polling timeout", async () => {
     let elapsedMs = 0;
     const items: AiSearchItemsClient = {

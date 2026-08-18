@@ -130,6 +130,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
             timeoutMs: AI_SEARCH_POLL_TIMEOUT_MS,
             pollIntervalMs: AI_SEARCH_POLL_INTERVAL_MS,
             fileContentEmptyRetries: 1,
+            transientErrorRetries: 2,
           },
         );
         if (item.status === "error" && item.error === "file_content_empty") {
