@@ -29,7 +29,7 @@ describe("article feature extraction", () => {
     expect(ARTICLE_FEATURE_MODEL).toBe("dynamic/rag");
   });
 
-  it("uses the stable Gemma parameters without truncating Markdown", () => {
+  it("uses the stable Gemma parameters without truncating Markdown or output", () => {
     const markdown = "中".repeat(100_000);
     const request = buildFeatureInferenceRequest("标题", markdown);
 
@@ -37,7 +37,7 @@ describe("article feature extraction", () => {
     expect(request.top_p).toBe(0.85);
     expect(request.reasoning_effort).toBe("low");
     expect(request.chat_template_kwargs.enable_thinking).toBe(false);
-    expect(request.max_completion_tokens).toBe(4_000);
+    expect(request).not.toHaveProperty("max_completion_tokens");
     expect(request.messages[0]?.content).toContain("输出“国海固收”");
     expect(request.messages[0]?.content).toContain("若初步概括仍属于这类上位词");
     expect(request.messages[0]?.content).toContain("可直接用于投资判断的明确观点");

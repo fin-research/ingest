@@ -18,14 +18,13 @@ export interface ArticleFeatures {
   keywords: ArticleKeyword[];
 }
 
-export interface FeatureInferenceRequest {
+export interface FeatureInferenceRequest extends Record<string, unknown> {
   messages: Array<{ role: "system" | "user"; content: string }>;
   temperature: number;
   top_p: number;
   seed: number;
   reasoning_effort: "low";
   chat_template_kwargs: { enable_thinking: false };
-  max_completion_tokens: number;
   response_format: { type: "json_object" };
 }
 
@@ -82,7 +81,6 @@ export function buildFeatureInferenceRequest(
     seed: 20260812,
     reasoning_effort: "low",
     chat_template_kwargs: { enable_thinking: false },
-    max_completion_tokens: 4_000,
     response_format: { type: "json_object" },
   };
 }
