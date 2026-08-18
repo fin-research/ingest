@@ -11,6 +11,7 @@ import {
   validateArticleMetadata,
 } from "./article";
 import { uploadAndWaitForAiSearch } from "./ai-search";
+import { runDynamicRoute } from "./ai-gateway";
 import {
   ARTICLE_FEATURE_MODEL,
   ARTICLE_FEATURE_PROMPT_VERSION,
@@ -67,19 +68,19 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
         async () => {
           return await extractArticleFeatures(
             async (input) =>
-              await this.env.AI.run(ARTICLE_FEATURE_MODEL, input, {
-                gateway: {
-                  id: this.env.AI_GATEWAY_ID,
-                  skipCache: true,
-                  collectLog: true,
+              await runDynamicRoute(
+                this.env.AI,
+                this.env.AI_GATEWAY_ID,
+                { model: ARTICLE_FEATURE_MODEL, ...input },
+                {
+                  requestTimeoutMs: 120_000,
                   metadata: {
                     article_id: article.id,
                     prompt_version: ARTICLE_FEATURE_PROMPT_VERSION,
+                    tags: "eastmoney,feature-extraction,model:dynamic-rag",
                   },
-                  requestTimeoutMs: 120_000,
                 },
-                tags: ["eastmoney", "feature-extraction", "model:dynamic-rag"],
-              }),
+              ),
             article.title,
             markdown,
           );
