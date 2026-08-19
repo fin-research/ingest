@@ -6,6 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "ARTICLE_API_BASE_URL": "https://eastmoney.hasbai.xyz/api",
+    "CLOUDFLARE_ACCOUNT_ID": "5cecc63c78acf8f5473f8745f4244448",
     "AI_GATEWAY_ID": "default"
   },
   "observability": {
@@ -38,8 +39,8 @@
       "bucket_name": "article"
     }
   ],
-  "ai": {
-    "binding": "AI"
+  "secrets": {
+    "required": ["CF_AIG_TOKEN"]
   },
   "ai_search": [
     {

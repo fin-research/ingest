@@ -6,12 +6,12 @@ Workflow 每篇文章执行六个基础步骤；微信公众号文章会多执�
 
 1. 通过 `/api/news/{sentimentId}` 获取文章全文和原文链接；缺少 `sentimentId` 时回退到 `newsId`，并在同一步把原文链接幂等写入 D1。
 2. 若链接指向微信公众号，单独执行公众号直连下载、HTML 转 Markdown 与风险披露清洗，并删除图片及链接 URL（保留链接锚文本）；失败时回退到 DM 正文。
-3. 使用 Workers AI binding 的 `dynamic/rag` 路由（上游配置为 Gemma 4）抽取标题、作者/机构、摘要、统一重要性分值，以及面向权益和利率债的结构化关键词。
+3. 通过 AI Gateway `compat/chat/completions` 调用 `dynamic/rag` 路由，抽取标题、作者/机构、摘要、统一重要性分值，以及面向权益和利率债的结构化关键词。
 4. 把文章特征写回 D1 `article`，把关键词逐条写入 D1 `keyword`。
 5. 写入 R2 `article` 存储桶，键为 `yyyy-mm-dd/标题.md`。
 6. 从 R2 读取同一对象并上传到 AI Search `default/finance`。
 
-文章特征通过 Workers AI binding 调用 `dynamic/rag`，并在同一次调用中接入 AI Gateway `default`。抽取关闭 thinking；Gateway 缓存关闭，保留日志和用量观测；Worker 内不保存或使用 Cloudflare API Token。
+文章特征通过 AI Gateway `default` 的 `compat/chat/completions` 端点调用 `dynamic/rag`。抽取关闭 thinking；Gateway 缓存关闭，保留日志和用量观测。`CLOUDFLARE_ACCOUNT_ID` 和 `AI_GATEWAY_ID` 是非敏感变量，Cloudflare token 仅通过生产 Worker Secret `CF_AIG_TOKEN` 注入，不写入源码或 Wrangler 配置。该 `compat` 端点已被 Cloudflare 标记为 deprecated，但目前是经线上验证可同时兼容动态路由内第三方 provider 与 Workers AI 节点的调用路径；迁移新版 REST API 前须重新验证动态路由兼容性。
 
 ## 数据与写入策略
 
@@ -49,6 +49,7 @@ pnpm deploy:dry
 
 ```bash
 pnpm exec wrangler whoami
+pnpm exec wrangler secret put CF_AIG_TOKEN
 pnpm exec wrangler d1 create eastmoney --location apac
 pnpm db:migrate:remote
 pnpm exec wrangler r2 bucket info article

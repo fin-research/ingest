@@ -5,6 +5,12 @@ export interface DynamicRouteOptions {
   requestTimeoutMs: number;
 }
 
+export interface AiGatewayCredentials {
+  accountId: string;
+  gatewayId: string;
+  token: string;
+}
+
 export class AiGatewayResponseError extends Error {
   readonly status: number;
   readonly gatewayLogId: string;
@@ -26,26 +32,27 @@ export class AiGatewayResponseError extends Error {
 }
 
 export async function runDynamicRoute(
-  ai: Ai,
-  gatewayId: string,
+  credentials: AiGatewayCredentials,
   query: Record<string, unknown>,
   options: DynamicRouteOptions,
+  fetcher: typeof fetch = fetch,
 ): Promise<unknown> {
-  const response = await ai.gateway(gatewayId).run(
+  const accountId = requiredConfig("account ID", credentials.accountId);
+  const gatewayId = requiredConfig("gateway ID", credentials.gatewayId);
+  const token = requiredConfig("authentication token", credentials.token);
+  const response = await fetcher(
+    `https://gateway.ai.cloudflare.com/v1/${encodeURIComponent(accountId)}/${encodeURIComponent(gatewayId)}/compat/chat/completions`,
     {
-      provider: "compat",
-      endpoint: "chat/completions",
-      headers: {},
-      query,
-    },
-    {
-      gateway: {
-        id: gatewayId,
-        skipCache: true,
-        collectLog: true,
-        requestTimeoutMs: options.requestTimeoutMs,
-        metadata: options.metadata,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "cf-aig-authorization": `Bearer ${token}`,
+        "cf-aig-skip-cache": "true",
+        "cf-aig-collect-log": "true",
+        "cf-aig-request-timeout": String(options.requestTimeoutMs),
+        "cf-aig-metadata": JSON.stringify(options.metadata),
       },
+      body: JSON.stringify(query),
       signal: AbortSignal.timeout(options.requestTimeoutMs + 5_000),
     },
   );
@@ -62,6 +69,12 @@ export async function runDynamicRoute(
   } catch {
     throw new AiGatewayResponseError(response.status, gatewayLogId, "response body is not valid JSON");
   }
+}
+
+function requiredConfig(label: string, value: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw new Error(`AI Gateway ${label} is not configured`);
+  return normalized;
 }
 
 async function readTextBounded(response: Response, maxBytes: number): Promise<string> {

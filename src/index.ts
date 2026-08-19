@@ -69,8 +69,11 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
           return await extractArticleFeatures(
             async (input) =>
               await runDynamicRoute(
-                this.env.AI,
-                this.env.AI_GATEWAY_ID,
+                {
+                  accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+                  gatewayId: this.env.AI_GATEWAY_ID,
+                  token: this.env.CF_AIG_TOKEN,
+                },
                 { model: ARTICLE_FEATURE_MODEL, ...input },
                 {
                   requestTimeoutMs: 120_000,
