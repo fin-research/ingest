@@ -11,15 +11,15 @@ Workflow 每篇文章执行六个基础步骤；微信公众号文章会多执�
 5. 写入 R2 `article` 存储桶，键为 `yyyy-mm-dd/标题.md`。
 6. 从 R2 读取同一对象并上传到 AI Search `default/finance`。
 
-文章特征通过 AI Gateway `default` 的 `compat/chat/completions` 端点调用 `dynamic/rag`。抽取关闭 thinking；Gateway 缓存关闭，保留日志和用量观测。`CLOUDFLARE_ACCOUNT_ID` 和 `AI_GATEWAY_ID` 是非敏感变量，Cloudflare token 仅通过生产 Worker Secret `CF_AIG_TOKEN` 注入，不写入源码或 Wrangler 配置。该 `compat` 端点已被 Cloudflare 标记为 deprecated，但目前是经线上验证可同时兼容动态路由内第三方 provider 与 Workers AI 节点的调用路径；迁移新版 REST API 前须重新验证动态路由兼容性。
+文章特征通过 AI SDK 的 OpenAI-compatible provider，经 AI Gateway `default` 的 `compat/chat/completions` 端点调用 `dynamic/rag`。Zod Schema 是输出结构的唯一来源：SDK 自动发送标准 `response_format.json_schema` 并在应用端校验对象。抽取关闭 thinking；Gateway 缓存关闭，保留日志和用量观测。`CLOUDFLARE_ACCOUNT_ID` 和 `AI_GATEWAY_ID` 是非敏感变量，Cloudflare token 仅通过生产 Worker Secret `CF_AIG_TOKEN` 注入，不写入源码或 Wrangler 配置。该 `compat` 端点已被 Cloudflare 标记为 deprecated，但目前仍是 Dynamic Routing 官方要求且已经验证的调用路径；迁移新版 REST API 前须重新验证动态路由兼容性。完整规范见项目根目录 `README.md`。
 
 ## 数据与写入策略
 
 - 数据源环境变量：`ARTICLE_API_BASE_URL=https://eastmoney.hasbai.xyz/api`。
 - 列表请求：`GET /news?tag=市场解读&pageSize=100`。
 - Worker 名为 `ingest`，D1 数据库名为 `eastmoney`；D1 保存文章 ID、标题、发布时间、发现时间、原文 `link`、作者、摘要、重要性、模型和 Prompt 版本等元数据，不保存正文。
-- `keyword` 以 `(article_id, ordinal)` 为主键，保存 `topic/fact/interpretation/impact`；同一文章重跑抽取时以一个 D1 `batch()` 原子覆盖。当前生产 Prompt 版本为 `article-features-v3`。
-- 输入正文不截断，动态路由的结构化输出上限为 4,000 tokens；若模型因达到上限而返回不完整结果，Workflow 将其视为失败并重试，不会保存残缺数据。
+- `keyword` 以 `(article_id, ordinal)` 为主键，保存 `topic/fact/interpretation/impact`；同一文章重跑抽取时以一个 D1 `batch()` 原子覆盖。当前生产 Prompt 版本为 `v4-ai-sdk-json-schema`。
+- 输入正文不截断，不设置 completion token 上限；响应限长读取，任何不完整或不符合 Schema 的输出都由 AI SDK 拒绝，Workflow 重试且不会保存残缺数据。
 - 每轮使用一次 `IN (...)` 批量查重；只有新增文章才通过一次 D1 `batch()` 写入，重复轮询不产生写操作。
 - Workflow 使用稳定实例 ID `article-{articleId}`。Cloudflare 实例 ID 只允许 ASCII 字母、数字、下划线和连字符，不能直接使用中文文章标题。批量启动失败时删除本轮新增的 D1 去重行，使下一轮能够重试。
 - R2 和 AI Search 使用同一对象键；写入均按同键幂等覆盖。R2 保留原始 Markdown，中文标点后加空格的兼容修复仅在上传 AI Search 时应用。

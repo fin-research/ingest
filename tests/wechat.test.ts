@@ -15,7 +15,7 @@ describe("WeChat article content", () => {
     expect(isWechatArticleLink("https://example.com/mp.weixin.qq.com")).toBe(false);
   });
 
-  it("uses the kb js_content parser and Markdown renderer", () => {
+  it("uses the embedded js_content parser and Markdown renderer", () => {
     const markdown = htmlToMarkdown(`
       <html><body><div id="js_content">
         <p>第一段<strong>加粗</strong>。</p>

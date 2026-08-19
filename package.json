@@ -20,5 +20,10 @@
     "typescript": "latest",
     "vitest": "latest",
     "wrangler": "4.121.0"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.31",
+    "ai": "7.0.68",
+    "zod": "4.4.3"
   }
 }

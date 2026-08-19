@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   ARTICLE_FEATURE_MODEL,
+  articleFeatureOutputSchema,
+  articleFeatureSchema,
   buildAiSearchMetadata,
   buildFeatureInferenceRequest,
   buildR2Metadata,
@@ -29,15 +31,15 @@ describe("article feature extraction", () => {
     expect(ARTICLE_FEATURE_MODEL).toBe("dynamic/rag");
   });
 
-  it("uses the stable Gemma parameters without truncating Markdown or output", () => {
+  it("uses the strict business schema without repeating a JSON example in the prompt", () => {
     const markdown = "中".repeat(100_000);
     const request = buildFeatureInferenceRequest("标题", markdown);
 
-    expect(request.temperature).toBe(0.1);
-    expect(request.top_p).toBe(0.85);
-    expect(request.reasoning_effort).toBe("low");
-    expect(request.chat_template_kwargs.enable_thinking).toBe(false);
-    expect(request).not.toHaveProperty("max_completion_tokens");
+    expect(request.schema).toBe(articleFeatureOutputSchema);
+    expect(articleFeatureSchema.safeParse(validFeatures).success).toBe(true);
+    expect(request.schemaName).toBe("article_features");
+    expect(request.reasoningEffort).toBe("low");
+    expect(request.enableThinking).toBe(false);
     expect(request.messages[0]?.content).toContain("输出“国海固收”");
     expect(request.messages[0]?.content).toContain("若初步概括仍属于这类上位词");
     expect(request.messages[0]?.content).toContain("可直接用于投资判断的明确观点");
@@ -47,27 +49,25 @@ describe("article feature extraction", () => {
     expect(request.messages[0]?.content).toContain("仅写“不确定性增加、方向纠结");
     expect(request.messages[0]?.content).toContain("硬性不得超过 55 个汉字");
     expect(request.messages[1]?.content).toContain(markdown);
+    expect(request.messages[1]?.content).toContain("响应 JSON Schema");
+    expect(request.messages[1]?.content).not.toContain('"importance":70');
     expect(request.messages[1]?.content).not.toContain("权益：影响；利率债：影响");
     expect(request.messages[1]?.content).not.toContain("中间部分已省略");
   });
 
-  it("rejects a response that reached the output token limit", async () => {
+  it("rejects a result that does not satisfy the domain contract", async () => {
     await expect(
       extractArticleFeatures(
-        async () => ({
-          choices: [{ finish_reason: "length", message: { content: JSON.stringify(validFeatures) } }],
-        }),
+        async () => ({ ...validFeatures, importance: 101 }),
         validFeatures.title,
         "正文",
       ),
-    ).rejects.toThrow("output limit");
+    ).rejects.toThrow("importance");
   });
 
-  it("parses a Workers AI chat completion and preserves the source title", async () => {
+  it("accepts the AI SDK object and preserves the source title", async () => {
     const extracted = await extractArticleFeatures(
-      async () => ({
-        choices: [{ message: { content: JSON.stringify({ ...validFeatures, title: "模型改写标题" }) } }],
-      }),
+      async () => ({ ...validFeatures, title: "模型改写标题" }),
       validFeatures.title,
       "正文",
     );

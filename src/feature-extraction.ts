@@ -1,31 +1,69 @@
-export const ARTICLE_FEATURE_MODEL = "dynamic/rag" as const;
-export const ARTICLE_FEATURE_PROMPT_VERSION = "v2";
+import { z } from "zod";
+
+import {
+  DYNAMIC_ROUTE_MODEL,
+  type DynamicRouteMessage,
+} from "./ai-gateway";
+
+export const ARTICLE_FEATURE_MODEL = DYNAMIC_ROUTE_MODEL;
+export const ARTICLE_FEATURE_PROMPT_VERSION = "v4-ai-sdk-json-schema";
 
 const MAX_KEYWORDS = 8;
 
-export interface ArticleKeyword {
-  topic: string;
-  fact: string;
-  interpretation: string;
-  impact: string;
-}
+export const articleFeatureSchema = z
+  .object({
+    title: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe("逐字复制输入标题，不得改写"),
+    author: z
+      .string()
+      .max(160)
+      .describe("正文明确出现的机构或研究业务团队；无法确认时为空字符串"),
+    summary: z
+      .string()
+      .min(1)
+      .max(55)
+      .describe("一句话概括核心结论、关键依据和首要市场影响，不超过55个汉字"),
+    importance: z
+      .number()
+      .int()
+      .min(0)
+      .max(100)
+      .describe("按提示词五项评分相加得到的0到100整数"),
+    keywords: z
+      .array(
+        z
+          .object({
+            topic: z.string().min(2).max(12).describe("具体、可识别的市场主题"),
+            fact: z.string().min(1).max(400).describe("原文事实或明确观点"),
+            interpretation: z.string().min(1).max(400).describe("事实背后的定价或传导含义"),
+            impact: z
+              .string()
+              .min(1)
+              .max(500)
+              .describe("受影响资产或行业、明确方向、机制或成立条件"),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(MAX_KEYWORDS)
+      .describe("按市场影响重要性降序排列的互不重复关键词"),
+  })
+  .strict();
 
-export interface ArticleFeatures {
-  title: string;
-  author: string;
-  summary: string;
-  importance: number;
-  keywords: ArticleKeyword[];
-}
+export type ArticleFeatures = z.infer<typeof articleFeatureSchema>;
+export type ArticleKeyword = ArticleFeatures["keywords"][number];
 
-export interface FeatureInferenceRequest extends Record<string, unknown> {
-  messages: Array<{ role: "system" | "user"; content: string }>;
-  temperature: number;
-  top_p: number;
-  seed: number;
-  reasoning_effort: "low";
-  chat_template_kwargs: { enable_thinking: false };
-  response_format: { type: "json_object" };
+export const articleFeatureOutputSchema = articleFeatureSchema;
+
+export interface FeatureInferenceRequest {
+  messages: DynamicRouteMessage[];
+  schema: typeof articleFeatureOutputSchema;
+  schemaName: "article_features";
+  reasoningEffort: "low";
+  enableThinking: false;
 }
 
 export type FeatureInferenceRunner = (request: FeatureInferenceRequest) => Promise<unknown>;
@@ -61,7 +99,7 @@ export async function extractArticleFeatures(
   markdown: string,
 ): Promise<ArticleFeatures> {
   const output = await runInference(buildFeatureInferenceRequest(title, markdown));
-  return validateArticleFeatures(extractInferencePayload(output), title);
+  return validateArticleFeatures(output, title);
 }
 
 export function buildFeatureInferenceRequest(
@@ -73,15 +111,13 @@ export function buildFeatureInferenceRequest(
       { role: "system", content: SYSTEM_PROMPT },
       {
         role: "user",
-        content: `输入标题：${title}\n\n输入正文：\n${markdown}\n\n严格输出结构：\n{"title":"标题","author":"机构/研究业务团队（如华泰固收）","summary":"摘要（简练）","importance":70,"keywords":[{"topic":"具体主题","fact":"事实或原文观点","interpretation":"归纳含义","impact":"直接表述受影响的市场、资产或行业及其方向和机制"}]}`,
+        content: `输入标题：${title}\n\n输入正文：\n${markdown}\n\n请严格遵循响应 JSON Schema 输出，不要增加字段。`,
       },
     ],
-    temperature: 0.1,
-    top_p: 0.85,
-    seed: 20260812,
-    reasoning_effort: "low",
-    chat_template_kwargs: { enable_thinking: false },
-    response_format: { type: "json_object" },
+    schema: articleFeatureOutputSchema,
+    schemaName: "article_features",
+    reasoningEffort: "low",
+    enableThinking: false,
   };
 }
 
@@ -185,35 +221,6 @@ function featureStatements(
         ),
     ),
   ];
-}
-
-function extractInferencePayload(output: unknown): unknown {
-  if (typeof output === "string") return parseJson(output);
-  const row = objectValue(output, "Workers AI response");
-  if (row.response !== undefined) {
-    return typeof row.response === "string" ? parseJson(row.response) : row.response;
-  }
-  if (!Array.isArray(row.choices) || row.choices.length === 0) {
-    throw new Error("Workers AI response is missing choices");
-  }
-  const choice = objectValue(row.choices[0], "Workers AI choice");
-  if (choice.finish_reason === "length") {
-    throw new Error("Workers AI response reached the output limit and is incomplete");
-  }
-  const message = objectValue(choice.message, "Workers AI message");
-  if (typeof message.content !== "string" || !message.content.trim()) {
-    throw new Error("Workers AI response is missing message content");
-  }
-  return parseJson(message.content);
-}
-
-function parseJson(value: string): unknown {
-  const trimmed = value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  try {
-    return JSON.parse(trimmed) as unknown;
-  } catch {
-    throw new Error("Workers AI response is not valid JSON");
-  }
 }
 
 function validateKeyword(value: unknown, index: number): ArticleKeyword {

@@ -11,15 +11,13 @@ import {
   validateArticleMetadata,
 } from "./article";
 import { uploadAndWaitForAiSearch } from "./ai-search";
-import { runDynamicRoute } from "./ai-gateway";
+import { generateDynamicRouteObject } from "./ai-gateway";
 import {
-  ARTICLE_FEATURE_MODEL,
   ARTICLE_FEATURE_PROMPT_VERSION,
   buildAiSearchMetadata,
   buildR2Metadata,
   extractArticleFeatures,
   saveArticleFeatures,
-  validateArticleFeatures,
 } from "./feature-extraction";
 import { collectResearchReports, updateArticleLink } from "./ingest";
 import { isWechatArticleLink, resolveArticleContent } from "./wechat";
@@ -61,35 +59,37 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
       : markdownStream(article, detail);
     const markdown = await new Response(documentStream).text();
 
-    const extracted = validateArticleFeatures(
-      await step.do(
-        "extract article features with dynamic/rag",
-        { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" }, timeout: "5 minutes" },
-        async () => {
-          return await extractArticleFeatures(
-            async (input) =>
-              await runDynamicRoute(
-                {
-                  accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-                  gatewayId: this.env.AI_GATEWAY_ID,
-                  token: this.env.CF_AIG_TOKEN,
+    const extracted = await step.do(
+      "extract article features with dynamic/rag",
+      { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" }, timeout: "5 minutes" },
+      async () => {
+        return await extractArticleFeatures(
+          async (input) =>
+            await generateDynamicRouteObject(
+              {
+                accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+                gatewayId: this.env.AI_GATEWAY_ID,
+                token: this.env.CF_AIG_TOKEN,
+              },
+              input.messages,
+              input.schema,
+              input.schemaName,
+              {
+                requestTimeoutMs: 120_000,
+                maxRetries: 0,
+                reasoningEffort: input.reasoningEffort,
+                enableThinking: input.enableThinking,
+                metadata: {
+                  article_id: article.id,
+                  prompt_version: ARTICLE_FEATURE_PROMPT_VERSION,
+                  tags: "eastmoney,feature-extraction,model:dynamic-rag",
                 },
-                { model: ARTICLE_FEATURE_MODEL, ...input },
-                {
-                  requestTimeoutMs: 120_000,
-                  metadata: {
-                    article_id: article.id,
-                    prompt_version: ARTICLE_FEATURE_PROMPT_VERSION,
-                    tags: "eastmoney,feature-extraction,model:dynamic-rag",
-                  },
-                },
-              ),
-            article.title,
-            markdown,
-          );
-        },
-      ),
-      article.title,
+              },
+            ),
+          article.title,
+          markdown,
+        );
+      },
     );
 
     await step.do(
