@@ -1,4 +1,4 @@
-import { Output, generateText, type FlexibleSchema } from "ai";
+import { Output, asSchema, generateText, type FlexibleSchema } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
 const MAX_AI_GATEWAY_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -68,7 +68,17 @@ export async function generateDynamicRouteObject<OUTPUT>(
   options: DynamicRouteOptions,
   fetcher: typeof fetch = fetch,
 ): Promise<OUTPUT> {
-  const prompt = splitInstructions(messages);
+  const resolvedSchema = asSchema(schema);
+  const requestSchema = await resolvedSchema.jsonSchema;
+  const prompt = splitInstructions([
+    ...messages,
+    {
+      role: "system",
+      content:
+        "兼容要求：上游可能不执行 response_format.json_schema。最终仅输出符合以下同一响应 Schema 的 JSON 对象，不要输出额外字段：\n" +
+        JSON.stringify(requestSchema),
+    },
+  ]);
   const result = await generateText({
     model: dynamicRouteModel(credentials, options, fetcher),
     instructions: prompt.instructions,
@@ -76,7 +86,7 @@ export async function generateDynamicRouteObject<OUTPUT>(
     temperature: DYNAMIC_ROUTE_TEMPERATURE,
     maxRetries: options.maxRetries,
     abortSignal: AbortSignal.timeout(options.requestTimeoutMs + 5_000),
-    output: Output.object({ schema, name: schemaName }),
+    output: Output.object({ schema: resolvedSchema, name: schemaName }),
   });
   return result.output;
 }

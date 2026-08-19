@@ -109,7 +109,13 @@ describe("AI Gateway dynamic route", () => {
         },
       },
     });
-    expect(query.messages).toEqual([{ role: "user", content: "test" }]);
+    expect(query.messages).toEqual([
+      {
+        role: "system",
+        content: expect.stringContaining('"required":["ok"]'),
+      },
+      { role: "user", content: "test" },
+    ]);
   });
 
   it("rejects JSON that does not satisfy the response schema", async () => {

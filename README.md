@@ -11,7 +11,7 @@ Workflow 每篇文章执行六个基础步骤；微信公众号文章会多执�
 5. 写入 R2 `article` 存储桶，键为 `yyyy-mm-dd/标题.md`。
 6. 从 R2 读取同一对象并上传到 AI Search `default/finance`。
 
-文章特征通过 AI SDK 的 OpenAI-compatible provider，经 AI Gateway `default` 的 `compat/chat/completions` 端点调用 `dynamic/rag`。Zod Schema 是输出结构的唯一来源：SDK 自动发送标准 `response_format.json_schema` 并在应用端校验对象。抽取关闭 thinking；Gateway 缓存关闭，保留日志和用量观测。`CLOUDFLARE_ACCOUNT_ID` 和 `AI_GATEWAY_ID` 是非敏感变量，Cloudflare token 仅通过生产 Worker Secret `CF_AIG_TOKEN` 注入，不写入源码或 Wrangler 配置。该 `compat` 端点已被 Cloudflare 标记为 deprecated，但目前仍是 Dynamic Routing 官方要求且已经验证的调用路径；迁移新版 REST API 前须重新验证动态路由兼容性。完整规范见项目根目录 `README.md`。
+文章特征通过 AI SDK 的 OpenAI-compatible provider，经 AI Gateway `default` 的 `compat/chat/completions` 端点调用 `dynamic/rag`。Zod Schema 是输出结构的唯一来源：SDK 自动发送标准 `response_format.json_schema`、由适配器生成同源兼容指令，并在应用端校验对象。抽取关闭 thinking；Gateway 缓存关闭，保留日志和用量观测。`CLOUDFLARE_ACCOUNT_ID` 和 `AI_GATEWAY_ID` 是非敏感变量，Cloudflare token 仅通过生产 Worker Secret `CF_AIG_TOKEN` 注入，不写入源码或 Wrangler 配置。该 `compat` 端点已被 Cloudflare 标记为 deprecated，但目前仍是 Dynamic Routing 官方要求且已经验证的调用路径；迁移新版 REST API 前须重新验证动态路由兼容性。完整规范见项目根目录 `README.md`。
 
 ## 数据与写入策略
 
