@@ -21,6 +21,7 @@ import {
 const CLOUDFLARE_API_BASE_URL = "https://api.cloudflare.com/client/v4";
 const AI_SEARCH_PAGE_SIZE = 50;
 const TERMINAL_WORKFLOW_STATUSES = new Set(["complete", "errored", "terminated"]);
+const MAX_CONSECUTIVE_WORKFLOW_STATUS_ERRORS = 5;
 const execFileAsync = promisify(execFile);
 
 interface ScriptOptions {
@@ -269,20 +270,31 @@ class WranglerControlPlaneClient implements ControlPlaneClient {
     options: Pick<ScriptOptions, "pollIntervalMs" | "timeoutMs">,
   ): Promise<{ status: string; error?: string }> {
     const deadline = Date.now() + options.timeoutMs;
+    let consecutiveStatusErrors = 0;
     while (true) {
-      const stdout = await this.runWrangler(
-        [
-          "workflows",
-          "instances",
-          "describe",
-          this.runtime.workflowName,
-          instanceId,
-          "--step-output=false",
-          "--truncate-output-limit",
-          "0",
-        ],
-        `Wrangler workflow status ${instanceId}`,
-      );
+      let stdout: string;
+      try {
+        stdout = await this.runWrangler(
+          [
+            "workflows",
+            "instances",
+            "describe",
+            this.runtime.workflowName,
+            instanceId,
+            "--step-output=false",
+            "--truncate-output-limit",
+            "0",
+          ],
+          `Wrangler workflow status ${instanceId}`,
+        );
+        consecutiveStatusErrors = 0;
+      } catch (error) {
+        consecutiveStatusErrors += 1;
+        if (consecutiveStatusErrors >= MAX_CONSECUTIVE_WORKFLOW_STATUS_ERRORS) throw error;
+        logWorkflowStatusRetry(instanceId, consecutiveStatusErrors, error);
+        await waitBeforeNextWorkflowPoll(instanceId, deadline, options.pollIntervalMs);
+        continue;
+      }
       const normalized = stripAnsi(stdout);
       const statusLine = /^Status:\s+(.+)$/m.exec(normalized)?.[1]?.toLowerCase() || "";
       const status = workflowStatusFromWrangler(statusLine);
@@ -290,9 +302,7 @@ class WranglerControlPlaneClient implements ControlPlaneClient {
         const error = /^Error:\s+(.+)$/m.exec(normalized)?.[1]?.trim();
         return { status, ...(error ? { error } : {}) };
       }
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) throw new Error(`workflow ${instanceId} did not finish before timeout`);
-      await new Promise((resolveWait) => setTimeout(resolveWait, Math.min(options.pollIntervalMs, remaining)));
+      await waitBeforeNextWorkflowPoll(instanceId, deadline, options.pollIntervalMs);
     }
   }
 
@@ -392,12 +402,23 @@ class CloudflareMaintenanceClient {
     options: Pick<ScriptOptions, "pollIntervalMs" | "timeoutMs">,
   ): Promise<{ status: string; error?: string }> {
     const deadline = Date.now() + options.timeoutMs;
+    let consecutiveStatusErrors = 0;
     while (true) {
       const url = this.apiUrl(
         `accounts/${this.runtime.accountId}/workflows/${encodeURIComponent(this.runtime.workflowName)}/instances/${encodeURIComponent(instanceId)}`,
       );
       url.searchParams.set("simple", "true");
-      const envelope = await this.request(url, {}, `workflow status ${instanceId}`);
+      let envelope: Record<string, unknown>;
+      try {
+        envelope = await this.request(url, {}, `workflow status ${instanceId}`);
+        consecutiveStatusErrors = 0;
+      } catch (error) {
+        consecutiveStatusErrors += 1;
+        if (consecutiveStatusErrors >= MAX_CONSECUTIVE_WORKFLOW_STATUS_ERRORS) throw error;
+        logWorkflowStatusRetry(instanceId, consecutiveStatusErrors, error);
+        await waitBeforeNextWorkflowPoll(instanceId, deadline, options.pollIntervalMs);
+        continue;
+      }
       const result = objectValue(envelope.result, "workflow status result");
       const status = requiredString(result.status, "workflow status");
       if (TERMINAL_WORKFLOW_STATUSES.has(status)) {
@@ -405,9 +426,7 @@ class CloudflareMaintenanceClient {
         const error = typeof workflowError?.message === "string" ? workflowError.message : undefined;
         return { status, ...(error ? { error } : {}) };
       }
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) throw new Error(`workflow ${instanceId} did not finish before timeout`);
-      await new Promise((resolveWait) => setTimeout(resolveWait, Math.min(options.pollIntervalMs, remaining)));
+      await waitBeforeNextWorkflowPoll(instanceId, deadline, options.pollIntervalMs);
     }
   }
 
@@ -661,6 +680,25 @@ function errorMessage(error: unknown): string {
 
 function stripAnsi(value: string): string {
   return value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+function logWorkflowStatusRetry(instanceId: string, attempt: number, error: unknown): void {
+  console.warn(JSON.stringify({
+    event: "metadata_repair_workflow_status_retry",
+    instanceId,
+    attempt,
+    error: errorMessage(error),
+  }));
+}
+
+async function waitBeforeNextWorkflowPoll(
+  instanceId: string,
+  deadline: number,
+  pollIntervalMs: number,
+): Promise<void> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error(`workflow ${instanceId} did not finish before timeout`);
+  await new Promise((resolveWait) => setTimeout(resolveWait, Math.min(pollIntervalMs, remaining)));
 }
 
 function workflowStatusFromWrangler(value: string): string {
