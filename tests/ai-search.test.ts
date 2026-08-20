@@ -134,6 +134,39 @@ describe("AI Search upload polling", () => {
     ]);
   });
 
+  it("uploads long encoded keys without an AI Search list filter", async () => {
+    let listCalls = 0;
+    const uploads: string[] = [];
+    const key = "2026-08-10/美银：7月CPI重要性高于就业报告，仍预计美联储9月启动加息.md";
+    const items: AiSearchItemsClient = {
+      async list() {
+        listCalls += 1;
+        return { result: [] };
+      },
+      async upload(name) {
+        uploads.push(name);
+        return { id: "long-item", key: name, status: "completed" };
+      },
+      get() {
+        return { info: async () => item("completed") };
+      },
+      async delete() {},
+    };
+
+    const result = await uploadAndWaitForAiSearch(items, key, "正文。 ", {
+      metadata: { source: "机构" },
+      timeoutMs: 480_000,
+      pollIntervalMs: 5_000,
+      fileContentEmptyRetries: 1,
+      wait: async () => undefined,
+      now: () => 0,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(listCalls).toBe(0);
+    expect(uploads).toEqual([key]);
+  });
+
   it("deletes and uploads once more after file_content_empty", async () => {
     let uploads = 0;
     const deleted: string[] = [];
