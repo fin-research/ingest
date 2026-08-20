@@ -66,6 +66,15 @@ D1 Read 和 Workers Scripts Write 权限。账户、D1、AI Search 和 Workflow 
 `wrangler.jsonc` 读取，也可通过 `CLOUDFLARE_ACCOUNT_ID`、`D1_DATABASE_ID`、
 `AI_SEARCH_INSTANCE`、`ARTICLE_WORKFLOW_NAME` 环境变量覆盖。
 
+如果 token 只有 AI Search Edit/Run 权限，可用 `--wrangler-auth` 让 D1 查询与 Workflow
+管理改用本机已登录的 Wrangler OAuth。Wrangler 子进程会主动移除 `CLOUDFLARE_API_TOKEN`，
+避免权限不足的 API token 覆盖 OAuth 身份：
+
+```bash
+node --env-file=../.env --import tsx scripts/reprocess-missing-ai-search-metadata.ts --wrangler-auth
+node --env-file=../.env --import tsx scripts/reprocess-missing-ai-search-metadata.ts --wrangler-auth --execute
+```
+
 维护重跑使用 DM 已清洗的正文，只复用现有逻辑删除 Markdown 图片、链接 URL（保留锚文本），
 不再下载公众号原文，也不会再次执行风险提示截断。随后仍完整执行特征抽取、D1 特征和关键词覆盖、
 R2 同 key 覆盖及 AI Search 元数据 upsert。常规增量 Workflow 的公众号下载与风险披露处理不变。

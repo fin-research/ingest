@@ -1,5 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
+import { execFile } from "node:child_process";
 import { resolve } from "node:path";
+import { promisify } from "node:util";
 
 import { unstable_readConfig } from "wrangler";
 
@@ -19,6 +21,7 @@ import {
 const CLOUDFLARE_API_BASE_URL = "https://api.cloudflare.com/client/v4";
 const AI_SEARCH_PAGE_SIZE = 50;
 const TERMINAL_WORKFLOW_STATUSES = new Set(["complete", "errored", "terminated"]);
+const execFileAsync = promisify(execFile);
 
 interface ScriptOptions {
   configPath: string;
@@ -27,6 +30,7 @@ interface ScriptOptions {
   concurrency: number;
   pollIntervalMs: number;
   timeoutMs: number;
+  wranglerAuth: boolean;
 }
 
 interface RuntimeConfig {
@@ -43,15 +47,27 @@ interface WorkflowRunResult {
   error?: string;
 }
 
+interface ControlPlaneClient {
+  listD1Articles(): Promise<ArticleMetadata[]>;
+  createArticleWorkflow(instanceId: string, article: ArticleMetadata): Promise<void>;
+  waitForWorkflow(
+    instanceId: string,
+    options: Pick<ScriptOptions, "pollIntervalMs" | "timeoutMs">,
+  ): Promise<{ status: string; error?: string }>;
+}
+
 async function main(): Promise<void> {
   const options = parseArguments(process.argv.slice(2));
   const token = requiredEnvironmentVariable("CLOUDFLARE_API_TOKEN");
   const runtime = loadRuntimeConfig(options.configPath);
-  const client = new CloudflareMaintenanceClient(runtime, token);
+  const aiSearchClient = new CloudflareMaintenanceClient(runtime, token);
+  const controlPlane: ControlPlaneClient = options.wranglerAuth
+    ? new WranglerControlPlaneClient(runtime, options.configPath)
+    : aiSearchClient;
 
   const [items, articles] = await Promise.all([
-    client.listAiSearchItems(),
-    client.listD1Articles(),
+    aiSearchClient.listAiSearchItems(),
+    controlPlane.listD1Articles(),
   ]);
   const selection = selectMetadataRepairTargets(items, articles);
   const selectedTargets = options.limit === undefined
@@ -92,6 +108,7 @@ async function main(): Promise<void> {
   console.log(JSON.stringify({
     event: "metadata_repair_inventory",
     execute: options.execute,
+    controlPlaneAuth: options.wranglerAuth ? "wrangler-oauth" : "api-token",
     aiSearchItems: items.length,
     d1Articles: articles.length,
     candidates: selection.targets.length,
@@ -129,14 +146,14 @@ async function main(): Promise<void> {
     async (target) => {
       const instanceId = repairInstanceId(runId, target);
       try {
-        await client.createArticleWorkflow(instanceId, target.article);
+        await controlPlane.createArticleWorkflow(instanceId, target.article);
         console.log(JSON.stringify({
           event: "metadata_repair_workflow_started",
           key: target.item.key,
           articleId: target.article.id,
           instanceId,
         }));
-        const status = await client.waitForWorkflow(instanceId, options);
+        const status = await controlPlane.waitForWorkflow(instanceId, options);
         const result: WorkflowRunResult = {
           target,
           instanceId,
@@ -166,7 +183,7 @@ async function main(): Promise<void> {
     },
   );
 
-  const refreshedItems = await client.listAiSearchItems();
+  const refreshedItems = await aiSearchClient.listAiSearchItems();
   const refreshedByKey = new Map(refreshedItems.map((item) => [item.key, item]));
   const stillMissing = selectedTargets.flatMap((target) => {
     const refreshed = refreshedByKey.get(target.item.key);
@@ -198,6 +215,105 @@ async function main(): Promise<void> {
     || selection.inFlight.length > 0
   ) {
     process.exitCode = 1;
+  }
+}
+
+class WranglerControlPlaneClient implements ControlPlaneClient {
+  private readonly configPath: string;
+
+  constructor(
+    private readonly runtime: RuntimeConfig,
+    configPath: string,
+  ) {
+    this.configPath = resolve(configPath);
+  }
+
+  async listD1Articles(): Promise<ArticleMetadata[]> {
+    const stdout = await this.runWrangler(
+      [
+        "d1",
+        "execute",
+        "DB",
+        "--remote",
+        "--json",
+        "--command",
+        "SELECT id, news_id, title, published_at FROM article ORDER BY published_at, id",
+      ],
+      "Wrangler D1 article inventory",
+    );
+    let payload: unknown;
+    try {
+      payload = JSON.parse(stdout);
+    } catch {
+      throw new Error("Wrangler D1 article inventory returned non-JSON output");
+    }
+    return parseD1ArticleResults(payload);
+  }
+
+  async createArticleWorkflow(instanceId: string, article: ArticleMetadata): Promise<void> {
+    await this.runWrangler(
+      [
+        "workflows",
+        "trigger",
+        this.runtime.workflowName,
+        JSON.stringify({ ...article, repairMode: ARTICLE_METADATA_REPAIR_MODE }),
+        "--id",
+        instanceId,
+      ],
+      `Wrangler create workflow ${instanceId}`,
+    );
+  }
+
+  async waitForWorkflow(
+    instanceId: string,
+    options: Pick<ScriptOptions, "pollIntervalMs" | "timeoutMs">,
+  ): Promise<{ status: string; error?: string }> {
+    const deadline = Date.now() + options.timeoutMs;
+    while (true) {
+      const stdout = await this.runWrangler(
+        [
+          "workflows",
+          "instances",
+          "describe",
+          this.runtime.workflowName,
+          instanceId,
+          "--step-output=false",
+          "--truncate-output-limit",
+          "0",
+        ],
+        `Wrangler workflow status ${instanceId}`,
+      );
+      const normalized = stripAnsi(stdout);
+      const statusLine = /^Status:\s+(.+)$/m.exec(normalized)?.[1]?.toLowerCase() || "";
+      const status = workflowStatusFromWrangler(statusLine);
+      if (TERMINAL_WORKFLOW_STATUSES.has(status)) {
+        const error = /^Error:\s+(.+)$/m.exec(normalized)?.[1]?.trim();
+        return { status, ...(error ? { error } : {}) };
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error(`workflow ${instanceId} did not finish before timeout`);
+      await new Promise((resolveWait) => setTimeout(resolveWait, Math.min(options.pollIntervalMs, remaining)));
+    }
+  }
+
+  private async runWrangler(argumentsList: string[], label: string): Promise<string> {
+    const childEnvironment = { ...process.env };
+    // The root .env token is intentionally AI-Search-only. Let Wrangler use its own OAuth token.
+    delete childEnvironment.CLOUDFLARE_API_TOKEN;
+    try {
+      const { stdout } = await execFileAsync(
+        "pnpm",
+        ["exec", "wrangler", ...argumentsList, "--config", this.configPath],
+        {
+          cwd: process.cwd(),
+          env: childEnvironment,
+          maxBuffer: 8 * 1024 * 1024,
+        },
+      );
+      return stdout;
+    } catch (error) {
+      throw new Error(`${label} failed: ${errorMessage(error)}`);
+    }
   }
 }
 
@@ -248,22 +364,7 @@ class CloudflareMaintenanceClient {
       },
       "D1 article inventory",
     );
-    if (!Array.isArray(envelope.result) || envelope.result.length !== 1) {
-      throw new Error("D1 query result must contain exactly one statement result");
-    }
-    const statement = objectValue(envelope.result[0], "D1 statement result");
-    if (statement.success !== true || !Array.isArray(statement.results)) {
-      throw new Error("D1 article query did not return rows");
-    }
-    return statement.results.map((value) => {
-      const row = objectValue(value, "D1 article row");
-      return validateArticleMetadata({
-        id: row.id,
-        newsId: row.news_id,
-        title: row.title,
-        time: row.published_at,
-      });
-    });
+    return parseD1ArticleResults(envelope.result);
   }
 
   async createArticleWorkflow(instanceId: string, article: ArticleMetadata): Promise<void> {
@@ -373,6 +474,7 @@ function parseArguments(argv: string[]): ScriptOptions {
     concurrency: 4,
     pollIntervalMs: 5_000,
     timeoutMs: 60 * 60 * 1000,
+    wranglerAuth: false,
   };
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
@@ -380,6 +482,8 @@ function parseArguments(argv: string[]): ScriptOptions {
       continue;
     } else if (argument === "--execute") {
       options.execute = true;
+    } else if (argument === "--wrangler-auth") {
+      options.wranglerAuth = true;
     } else if (argument === "--help" || argument === "-h") {
       printHelp();
       process.exit(0);
@@ -418,6 +522,7 @@ The default is read-only. Pass --execute to trigger workflows and verify final m
 
 Options:
   --execute                 Trigger and wait for repair workflows
+  --wrangler-auth           Use logged-in Wrangler OAuth for D1 and Workflows
   --limit <count>           Process only the first count candidates
   --concurrency <count>     Maximum active workflows (default: 4)
   --poll-interval-ms <ms>   Workflow status poll interval (default: 5000)
@@ -426,8 +531,28 @@ Options:
   -h, --help                Show this help
 
 Required environment:
-  CLOUDFLARE_API_TOKEN      Token with AI Search Edit/Run, D1 Read, and Workers Scripts Write
+  CLOUDFLARE_API_TOKEN      AI Search Edit/Run token; D1/Workers permissions are also required
+                            unless --wrangler-auth is used
 `);
+}
+
+function parseD1ArticleResults(value: unknown): ArticleMetadata[] {
+  if (!Array.isArray(value) || value.length !== 1) {
+    throw new Error("D1 query result must contain exactly one statement result");
+  }
+  const statement = objectValue(value[0], "D1 statement result");
+  if (statement.success !== true || !Array.isArray(statement.results)) {
+    throw new Error("D1 article query did not return rows");
+  }
+  return statement.results.map((entry) => {
+    const row = objectValue(entry, "D1 article row");
+    return validateArticleMetadata({
+      id: row.id,
+      newsId: row.news_id,
+      title: row.title,
+      time: row.published_at,
+    });
+  });
 }
 
 function parseAiSearchItem(value: unknown): MetadataRepairItem {
@@ -532,6 +657,21 @@ function parseApiError(value: unknown): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+function workflowStatusFromWrangler(value: string): string {
+  if (value.includes("completed")) return "complete";
+  if (value.includes("errored")) return "errored";
+  if (value.includes("terminated")) return "terminated";
+  if (value.includes("queued")) return "queued";
+  if (value.includes("running")) return "running";
+  if (value.includes("paused")) return "paused";
+  if (value.includes("waiting")) return "waiting";
+  throw new Error(`unsupported Wrangler workflow status: ${value || "missing"}`);
 }
 
 main().catch((error: unknown) => {
