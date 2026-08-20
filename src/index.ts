@@ -139,6 +139,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleWorkflowPayl
           markdown,
           {
             metadata: buildAiSearchMetadata(extracted, article.publishedAt),
+            forceUpload: article.repairMode === ARTICLE_METADATA_REPAIR_MODE,
             timeoutMs: AI_SEARCH_POLL_TIMEOUT_MS,
             pollIntervalMs: AI_SEARCH_POLL_INTERVAL_MS,
             fileContentEmptyRetries: 1,
