@@ -93,6 +93,12 @@ export function cleanMarkdownLinksAndImages(markdown: string): string {
     .trim();
 }
 
+export function cleanPreviouslyProcessedArticleMarkdown(markdown: string): string {
+  const cleaned = cleanMarkdownLinksAndImages(markdown);
+  if (!cleaned) throw new Error("article Markdown is empty after cleaning links and images");
+  return cleaned;
+}
+
 function isRiskLine(line: string): boolean {
   const chineseOnly = line.replace(/[^\u4e00-\u9fff]/g, "");
   return (

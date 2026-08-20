@@ -3,25 +3,27 @@ export interface AiSearchItemSnapshot {
   key: string;
   status: "completed" | "error" | "skipped" | "queued" | "running" | "outdated";
   error?: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface AiSearchItemsClient {
-  list(params: {
-    key: string;
-    source: "builtin";
-    per_page: number;
+  list(params?: {
+    page?: number;
+    per_page?: number;
+    search?: string;
+    source?: string;
   }): Promise<{ result: AiSearchItemSnapshot[] }>;
   upload(
     name: string,
     content: ReadableStream | Blob | string,
-    options?: { metadata?: Record<string, string> },
+    options?: { metadata?: Record<string, unknown> },
   ): Promise<AiSearchItemSnapshot>;
   get(itemId: string): { info(): Promise<AiSearchItemSnapshot> };
   delete(itemId: string): Promise<void>;
 }
 
 interface UploadAndWaitOptions {
-  metadata?: Record<string, string>;
+  metadata?: Record<string, unknown>;
   timeoutMs: number;
   pollIntervalMs: number;
   fileContentEmptyRetries: number;
@@ -39,9 +41,11 @@ export async function uploadAndWaitForAiSearch(
   const wait = options.wait || ((delayMs: number) => scheduler.wait(delayMs));
   const now = options.now || Date.now;
   const deadline = now() + options.timeoutMs;
-  const existing = await items.list({ key, source: "builtin", per_page: 1 });
-  let item = existing.result[0];
+  const existing = await items.list({ search: key, source: "builtin", per_page: 50 });
+  let item = existing.result.find((candidate) => candidate.key === key);
   if (!item) {
+    item = await items.upload(key, content, { metadata: options.metadata });
+  } else if (metadataKeysAreMissing(item.metadata, options.metadata)) {
     item = await items.upload(key, content, { metadata: options.metadata });
   }
 
@@ -82,6 +86,20 @@ export async function uploadAndWaitForAiSearch(
     }
     item = await items.upload(key, content, { metadata: options.metadata });
   }
+}
+
+function metadataKeysAreMissing(
+  current: Record<string, unknown> | undefined,
+  expected: Record<string, unknown> | undefined,
+): boolean {
+  if (!expected) return false;
+  return Object.keys(expected).some(
+    (key) =>
+      !current
+      || !Object.prototype.hasOwnProperty.call(current, key)
+      || current[key] === null
+      || current[key] === undefined,
+  );
 }
 
 export type { AiSearchItemsClient, UploadAndWaitOptions };

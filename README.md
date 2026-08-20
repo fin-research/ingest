@@ -43,6 +43,33 @@ pnpm test
 pnpm deploy:dry
 ```
 
+## AI Search 元数据补全
+
+`scripts/reprocess-missing-ai-search-metadata.ts` 用于维护 AI Search `default/finance` 中缺少
+`published_at`、`source`、`tags` 或 `importance` 的内置存储文章。脚本按每页最多 50 条遍历
+线上 Items，以和生产 Workflow 相同的 R2 key 规则精确映射 D1 文章；默认只盘点，不写入：
+
+```bash
+CLOUDFLARE_API_TOKEN=... pnpm maintenance:repair-metadata
+```
+
+确认盘点结果后，显式传入 `--execute`。脚本按受控并发为每篇文章创建新的 `article`
+Workflow 实例，等待执行结束，并重新分页检查四个元数据字段；任一 Workflow 失败、字段仍缺失、
+映射不唯一或 Item 尚在处理中都会以非零状态结束：
+
+```bash
+CLOUDFLARE_API_TOKEN=... pnpm maintenance:repair-metadata -- --execute --concurrency 4
+```
+
+Token 只从 `CLOUDFLARE_API_TOKEN` 环境变量读取，不写配置或日志；需要 AI Search Edit/Run、
+D1 Read 和 Workers Scripts Write 权限。账户、D1、AI Search 和 Workflow 标识默认从
+`wrangler.jsonc` 读取，也可通过 `CLOUDFLARE_ACCOUNT_ID`、`D1_DATABASE_ID`、
+`AI_SEARCH_INSTANCE`、`ARTICLE_WORKFLOW_NAME` 环境变量覆盖。
+
+维护重跑使用 DM 已清洗的正文，只复用现有逻辑删除 Markdown 图片、链接 URL（保留锚文本），
+不再下载公众号原文，也不会再次执行风险提示截断。随后仍完整执行特征抽取、D1 特征和关键词覆盖、
+R2 同 key 覆盖及 AI Search 元数据 upsert。常规增量 Workflow 的公众号下载与风险披露处理不变。
+
 ## Cloudflare 初始化与自动部署
 
 以下资源命令仅用于首次初始化；日常发布只需推送 `main`。Wrangler v4.45+ 可以自动配置缺少资源 ID 的 D1 binding，首次初始化建议显式创建同名 D1：

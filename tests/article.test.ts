@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   addChinesePunctuationSpaces,
+  ARTICLE_METADATA_REPAIR_MODE,
   articleObjectKey,
   buildArticleMarkdown,
   fetchResearchReportDetail,
   fetchResearchReportList,
   prepareAiSearchMarkdown,
   validateArticleMetadata,
+  validateArticleWorkflowPayload,
   workflowInstanceId,
 } from "../src/article";
 
@@ -106,5 +108,16 @@ describe("research report helpers", () => {
         async () => Response.json({ content: "" }),
       ),
     ).rejects.toThrow("content is required");
+  });
+
+  it("accepts only the explicit metadata-repair workflow mode", () => {
+    const payload = validateArticleWorkflowPayload({
+      ...validateArticleMetadata(article),
+      repairMode: ARTICLE_METADATA_REPAIR_MODE,
+    });
+    expect(payload.repairMode).toBe(ARTICLE_METADATA_REPAIR_MODE);
+    expect(() => validateArticleWorkflowPayload({ ...payload, repairMode: "other" })).toThrow(
+      "repairMode is unsupported",
+    );
   });
 });

@@ -6,9 +6,10 @@ import {
   buildArticleMarkdown,
   fetchResearchReportDetail,
   prepareAiSearchMarkdown,
-  type ArticleMetadata,
+  ARTICLE_METADATA_REPAIR_MODE,
+  type ArticleWorkflowPayload,
   validateArticleDetail,
-  validateArticleMetadata,
+  validateArticleWorkflowPayload,
 } from "./article";
 import { uploadAndWaitForAiSearch } from "./ai-search";
 import { generateDynamicRouteObject } from "./ai-gateway";
@@ -20,17 +21,18 @@ import {
   saveArticleFeatures,
 } from "./feature-extraction";
 import { collectResearchReports, updateArticleLink } from "./ingest";
-import { isWechatArticleLink, resolveArticleContent } from "./wechat";
+import {
+  cleanPreviouslyProcessedArticleMarkdown,
+  isWechatArticleLink,
+  resolveArticleContent,
+} from "./wechat";
 
 const AI_SEARCH_POLL_TIMEOUT_MS = 8 * 60 * 1000;
 const AI_SEARCH_POLL_INTERVAL_MS = 5_000;
 
-export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
-  override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {
-    const article = validateArticleMetadata({
-      ...event.payload,
-      time: event.payload.publishedAt,
-    });
+export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleWorkflowPayload> {
+  override async run(event: Readonly<WorkflowEvent<ArticleWorkflowPayload>>, step: WorkflowStep) {
+    const article = validateArticleWorkflowPayload(event.payload);
     const key = articleObjectKey(article);
 
     const detailStream = await step.do(
@@ -44,7 +46,14 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
     );
     const detail = validateArticleDetail(await new Response(detailStream).json());
 
-    const documentStream = isWechatArticleLink(detail.link || "")
+    // Repair input is the already risk-trimmed DM body. Repeating disclosure trimming is not
+    // idempotent and can delete an article whose first surviving paragraph begins with 风险提示.
+    const documentStream = article.repairMode === ARTICLE_METADATA_REPAIR_MODE
+      ? markdownStream(article, {
+          ...detail,
+          content: cleanPreviouslyProcessedArticleMarkdown(detail.content),
+        })
+      : isWechatArticleLink(detail.link || "")
       ? await step.do(
           "download WeChat article",
           {
@@ -173,7 +182,7 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 function markdownStream(
-  article: ArticleMetadata,
+  article: ArticleWorkflowPayload,
   detail: Parameters<typeof buildArticleMarkdown>[1],
 ): ReadableStream<Uint8Array> {
   return new Blob([buildArticleMarkdown(article, detail)]).stream();

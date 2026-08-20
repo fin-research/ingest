@@ -52,9 +52,15 @@ describe("AI Search upload polling", () => {
 
   it("reuses an existing completed key without uploading it again", async () => {
     let uploads = 0;
+    const metadata = {
+      published_at: "2026-08-11T00:00:00.000Z",
+      source: "机构",
+      tags: "政策",
+      importance: "70",
+    };
     const items: AiSearchItemsClient = {
       async list() {
-        return { result: [item("completed")] };
+        return { result: [{ ...item("completed"), metadata }] };
       },
       async upload() {
         uploads += 1;
@@ -66,16 +72,66 @@ describe("AI Search upload polling", () => {
       async delete() {},
     };
 
-    const result = await uploadAndWaitForAiSearch(items, "2026-08-11/article.md", "正文。 ", {
-      timeoutMs: 480_000,
-      pollIntervalMs: 5_000,
-      fileContentEmptyRetries: 1,
-      wait: async () => undefined,
-      now: () => 0,
-    });
+    const result = await uploadAndWaitForAiSearch(
+      items,
+      "2026-08-11/article.md",
+      "正文。 ",
+      {
+        metadata,
+        timeoutMs: 480_000,
+        pollIntervalMs: 5_000,
+        fileContentEmptyRetries: 1,
+        wait: async () => undefined,
+        now: () => 0,
+      },
+    );
 
     expect(result.status).toBe("completed");
     expect(uploads).toBe(0);
+  });
+
+  it("upserts an existing completed key when expected metadata fields are missing", async () => {
+    let uploads = 0;
+    const listCalls: unknown[] = [];
+    const items: AiSearchItemsClient = {
+      async list(params) {
+        listCalls.push(params);
+        return { result: [{ ...item("completed"), metadata: { source: "机构" } }] };
+      },
+      async upload(_key, _content, options) {
+        uploads += 1;
+        return { ...item("queued"), metadata: options?.metadata };
+      },
+      get() {
+        return {
+          info: async () => ({
+            ...item("completed"),
+            metadata: { source: "机构", published_at: "2026-08-11T00:00:00.000Z" },
+          }),
+        };
+      },
+      async delete() {},
+    };
+
+    const result = await uploadAndWaitForAiSearch(
+      items,
+      "2026-08-11/article.md",
+      "正文。 ",
+      {
+        metadata: { source: "机构", published_at: "2026-08-11T00:00:00.000Z" },
+        timeoutMs: 480_000,
+        pollIntervalMs: 5_000,
+        fileContentEmptyRetries: 1,
+        wait: async () => undefined,
+        now: () => 0,
+      },
+    );
+
+    expect(result.status).toBe("completed");
+    expect(uploads).toBe(1);
+    expect(listCalls).toEqual([
+      { search: "2026-08-11/article.md", source: "builtin", per_page: 50 },
+    ]);
   });
 
   it("deletes and uploads once more after file_content_empty", async () => {
