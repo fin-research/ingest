@@ -66,7 +66,7 @@ describe("scheduled ingest", () => {
     const repository = new MemoryRepository();
     const workflow = new MemoryWorkflow();
     const dependencies = {
-      apiBaseUrl: "https://eastmoney.hasbai.xyz/api",
+      apiBaseUrl: "https://eastmoney.hasbai.xyz/data",
       repository,
       workflow,
       fetcher,
@@ -92,7 +92,7 @@ describe("scheduled ingest", () => {
     await expect(
       runCollection(
         {
-          apiBaseUrl: "https://eastmoney.hasbai.xyz/api",
+          apiBaseUrl: "https://eastmoney.hasbai.xyz/data",
           repository,
           workflow,
           fetcher,

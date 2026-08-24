@@ -43,10 +43,10 @@ describe("research report helpers", () => {
       });
     };
 
-    const result = await fetchResearchReportList("https://eastmoney.hasbai.xyz/api", fetcher);
+    const result = await fetchResearchReportList("https://eastmoney.hasbai.xyz/data", fetcher);
 
     expect(result).toHaveLength(1);
-    expect(requested[0]?.pathname).toBe("/api/news");
+    expect(requested[0]?.pathname).toBe("/data/news");
     expect(requested[0]?.searchParams.get("tag")).toBe("市场解读");
     expect(requested[0]?.searchParams.get("pageSize")).toBe("100");
   });
@@ -54,7 +54,7 @@ describe("research report helpers", () => {
   it("fetches report details by sentimentId", async () => {
     let requested = "";
     const detail = await fetchResearchReportDetail(
-      "https://eastmoney.hasbai.xyz/api",
+      "https://eastmoney.hasbai.xyz/data",
       validateArticleMetadata(article),
       async (input) => {
         requested = input.toString();
@@ -62,7 +62,7 @@ describe("research report helpers", () => {
       },
     );
 
-    expect(new URL(requested).pathname).toBe("/api/news/2026081100010555370");
+    expect(new URL(requested).pathname).toBe("/data/news/2026081100010555370");
     expect(detail.content).toBe("完整正文。");
   });
 
@@ -103,7 +103,7 @@ describe("research report helpers", () => {
     );
     await expect(
       fetchResearchReportDetail(
-        "https://eastmoney.hasbai.xyz/api",
+        "https://eastmoney.hasbai.xyz/data",
         validateArticleMetadata(article),
         async () => Response.json({ content: "" }),
       ),
