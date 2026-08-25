@@ -89,11 +89,17 @@ describe("central bank Telegram notifications", () => {
   it("posts a bounded plain-text alert to Telegram sendMessage", async () => {
     let requestedUrl = "";
     let requestedInit: RequestInit | undefined;
-    const notifier = new TelegramBotNotifier("123456:test-token", "789012", async (input, init) => {
+    const strictFetcher = async function (
+      this: unknown,
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> {
+      expect(this).toBeUndefined();
       requestedUrl = input.toString();
       requestedInit = init;
       return Response.json({ ok: true, result: { message_id: 456 } });
-    });
+    };
+    const notifier = new TelegramBotNotifier("123456:test-token", "789012", strictFetcher);
 
     const messageId = await notifier.send({
       id: policyNews.sentimentId,

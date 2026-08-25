@@ -132,7 +132,8 @@ export class TelegramBotNotifier implements TelegramNotifier {
     const endpoint = new URL(`https://api.telegram.org/bot${this.botToken}/sendMessage`);
     let response: Response;
     try {
-      response = await this.fetcher(endpoint, {
+      const fetcher = this.fetcher;
+      response = await fetcher(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
