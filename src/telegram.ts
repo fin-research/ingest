@@ -76,8 +76,10 @@ export async function runCentralBankNotificationCollection(
     let messageId: number;
     try {
       messageId = await notifier.send(article);
-    } catch {
-      throw new Error(`Telegram notification failed for article ${article.id}`);
+    } catch (error) {
+      throw new Error(
+        `Telegram notification failed for article ${article.id}: ${publicErrorMessage(error)}`,
+      );
     }
     await dependencies.repository.markDelivered(article, sentAt, messageId);
     sent += 1;
@@ -145,7 +147,11 @@ export class TelegramBotNotifier implements TelegramNotifier {
 
     const payload = await readTelegramResponse(response);
     if (!response.ok || !payload.ok) {
-      throw new Error(`Telegram sendMessage failed with HTTP ${response.status}`);
+      const errorCode = payload.errorCode ? `, code ${payload.errorCode}` : "";
+      const description = payload.description ? `: ${payload.description}` : "";
+      throw new Error(
+        `Telegram sendMessage failed with HTTP ${response.status}${errorCode}${description}`,
+      );
     }
     if (!payload.result || !Number.isSafeInteger(payload.result.message_id)) {
       throw new Error("Telegram sendMessage response is missing message_id");
@@ -161,6 +167,8 @@ export function formatCentralBankNotification(article: ArticleMetadata): string 
 interface TelegramResponse {
   ok: boolean;
   result?: { message_id: number };
+  errorCode?: number;
+  description?: string;
 }
 
 async function readTelegramResponse(response: Response): Promise<TelegramResponse> {
@@ -179,13 +187,24 @@ async function readTelegramResponse(response: Response): Promise<TelegramRespons
   if (typeof row.ok !== "boolean") {
     throw new Error("Telegram sendMessage response is missing ok");
   }
-  if (result === undefined) return { ok: row.ok };
+  const errorCode = row.error_code;
+  const description = row.description;
+  const errorFields = {
+    ...(typeof errorCode === "number" && Number.isSafeInteger(errorCode)
+      ? { errorCode }
+      : {}),
+    ...(typeof description === "string" && description.trim()
+      ? { description: description.trim().slice(0, 500) }
+      : {}),
+  };
+  if (result === undefined) return { ok: row.ok, ...errorFields };
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     throw new Error("Telegram sendMessage result must be an object");
   }
   const messageId = (result as Record<string, unknown>).message_id;
   return {
     ok: row.ok,
+    ...errorFields,
     ...(typeof messageId === "number" ? { result: { message_id: messageId } } : {}),
   };
 }
@@ -208,6 +227,10 @@ function requireTelegramBotToken(value: string): string {
     throw new Error("Telegram bot token has an invalid format");
   }
   return normalized;
+}
+
+function publicErrorMessage(value: unknown): string {
+  return value instanceof Error ? value.message : "Unknown error";
 }
 
 function formatShanghaiDateTime(value: string): string {

@@ -81,7 +81,7 @@ describe("central bank Telegram notifications", () => {
         },
         "2026-08-25T00:35:00Z",
       ),
-    ).rejects.toThrow(`article ${policyNews.sentimentId}`);
+    ).rejects.toThrow(`article ${policyNews.sentimentId}: upstream unavailable`);
 
     expect(repository.rows.size).toBe(0);
   });
@@ -124,6 +124,27 @@ describe("central bank Telegram notifications", () => {
       title: policyNews.title,
       publishedAt: policyNews.time,
     })).rejects.toThrow("message_id");
+  });
+
+  it("reports Telegram error codes without exposing request credentials", async () => {
+    const notifier = new TelegramBotNotifier(
+      "123:secret-token",
+      "456",
+      async (): Promise<Response> => Response.json(
+        { ok: false, error_code: 400, description: "Bad Request: chat not found" },
+        { status: 400 },
+      ),
+    );
+
+    const sending = notifier.send({
+      id: policyNews.sentimentId,
+      title: policyNews.title,
+      publishedAt: policyNews.time,
+    });
+    await expect(sending).rejects.toThrow(
+      "Telegram sendMessage failed with HTTP 400, code 400: Bad Request: chat not found",
+    );
+    await expect(sending).rejects.not.toThrow("secret-token");
   });
 
   it("formats the source title without Telegram markup", () => {
