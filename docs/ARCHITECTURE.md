@@ -10,15 +10,23 @@
 
 ```text
 Cron
- → GET {ARTICLE_API_BASE_URL}/news?tag=市场解读&pageSize=100
- → runtime validation + exact tag filter
- → D1 batch lookup existing IDs
- → D1 batch insert new metadata
- → Workflow createBatch
-    └─ start failed → delete this round's new dedupe rows
+ ├─ GET {ARTICLE_API_BASE_URL}/news?tag=市场解读&pageSize=100
+ │   → runtime validation + exact tag filter
+ │   → D1 batch lookup existing IDs
+ │   → D1 batch insert new metadata
+ │   → Workflow createBatch
+ │      └─ start failed → delete this round's new dedupe rows
+ └─ GET {ARTICLE_API_BASE_URL}/news?tag=经济数据%26政策&pageSize=100
+     → runtime validation + exact tag filter
+     → exact title prefix filter: 中国央行：
+     → D1 lookup delivered IDs
+     → Telegram sendMessage
+     → record successful delivery in D1
 ```
 
 同一文章 ID 在正常轮询中只启动一次。Workflow 实例 ID 使用稳定的 ASCII `article-{articleId}`，不能直接使用中文标题。
+
+两个采集分支并行执行并分别记录结果，一个分支失败时仍等待另一个分支完成。政策资讯只发送 Telegram 告警，不进入 `ArticleWorkflow`、R2 或 AI Search。Telegram 只在成功响应包含 `message_id` 后记录投递；发送失败不落成功记录，下轮 Cron 重试。
 
 `ARTICLE_API_BASE_URL` 固定指向生产 `/data` 前缀；列表和详情都必须从该统一数据入口读取。
 

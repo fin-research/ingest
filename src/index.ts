@@ -21,6 +21,7 @@ import {
   saveArticleFeatures,
 } from "./feature-extraction";
 import { collectResearchReports, updateArticleLink } from "./ingest";
+import { collectCentralBankNotifications } from "./telegram";
 import {
   cleanPreviouslyProcessedArticleMarkdown,
   isWechatArticleLink,
@@ -177,8 +178,40 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
-    const summary = await collectResearchReports(env, new Date(controller.scheduledTime).toISOString());
-    console.log(JSON.stringify({ event: "research_report_ingest", ...summary }));
+    const scheduledAt = new Date(controller.scheduledTime).toISOString();
+    const results = await Promise.allSettled([
+      collectResearchReports(env, scheduledAt),
+      collectCentralBankNotifications(env, scheduledAt),
+    ]);
+    const [researchReports, centralBankNotifications] = results;
+
+    if (researchReports?.status === "fulfilled") {
+      console.log(JSON.stringify({ event: "research_report_ingest", ...researchReports.value }));
+    } else {
+      console.error(JSON.stringify({
+        event: "research_report_ingest_failed",
+        error: errorMessage(researchReports?.reason),
+      }));
+    }
+
+    if (centralBankNotifications?.status === "fulfilled") {
+      console.log(JSON.stringify({
+        event: "central_bank_telegram_notifications",
+        ...centralBankNotifications.value,
+      }));
+    } else {
+      console.error(JSON.stringify({
+        event: "central_bank_telegram_notifications_failed",
+        error: errorMessage(centralBankNotifications?.reason),
+      }));
+    }
+
+    const failed = results
+      .map((result, index) => result.status === "rejected" ? ["research_reports", "telegram"][index] : null)
+      .filter((name): name is string => name !== null);
+    if (failed.length > 0) {
+      throw new Error(`scheduled collection failed: ${failed.join(", ")}`);
+    }
   },
 } satisfies ExportedHandler<Env>;
 
@@ -187,4 +220,8 @@ function markdownStream(
   detail: Parameters<typeof buildArticleMarkdown>[1],
 ): ReadableStream<Uint8Array> {
   return new Blob([buildArticleMarkdown(article, detail)]).stream();
+}
+
+function errorMessage(value: unknown): string {
+  return value instanceof Error ? value.message : "Unknown error";
 }

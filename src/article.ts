@@ -3,6 +3,8 @@ const MAX_MARKDOWN_BYTES = 4 * 1024 * 1024;
 const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
 
 export const MARKET_COMMENTARY_TAG = "市场解读";
+export const ECONOMIC_DATA_POLICY_TAG = "经济数据&政策";
+export const CHINA_CENTRAL_BANK_TITLE_PREFIX = "中国央行：";
 export const NEWS_PAGE_SIZE = 100;
 export const ARTICLE_METADATA_REPAIR_MODE = "repair-missing-ai-search-metadata";
 
@@ -85,8 +87,24 @@ export async function fetchResearchReportList(
   apiBaseUrl: string,
   fetcher: Fetcher = fetch,
 ): Promise<ArticleMetadata[]> {
+  return await fetchTaggedNewsList(apiBaseUrl, MARKET_COMMENTARY_TAG, fetcher);
+}
+
+export async function fetchCentralBankPolicyNews(
+  apiBaseUrl: string,
+  fetcher: Fetcher = fetch,
+): Promise<ArticleMetadata[]> {
+  const articles = await fetchTaggedNewsList(apiBaseUrl, ECONOMIC_DATA_POLICY_TAG, fetcher);
+  return articles.filter((article) => article.title.startsWith(CHINA_CENTRAL_BANK_TITLE_PREFIX));
+}
+
+async function fetchTaggedNewsList(
+  apiBaseUrl: string,
+  tag: string,
+  fetcher: Fetcher,
+): Promise<ArticleMetadata[]> {
   const url = apiUrl(apiBaseUrl, "news");
-  url.searchParams.set("tag", MARKET_COMMENTARY_TAG);
+  url.searchParams.set("tag", tag);
   url.searchParams.set("pageSize", String(NEWS_PAGE_SIZE));
 
   const response = await fetcher(url, {
@@ -101,7 +119,7 @@ export async function fetchResearchReportList(
   if (!Array.isArray(rawList)) throw new Error("news list response is missing list");
 
   const articles = rawList
-    .filter(hasMarketCommentaryTag)
+    .filter((value) => hasExactTag(value, tag))
     .map(validateArticleMetadata);
   return deduplicateArticles(articles);
 }
@@ -145,10 +163,10 @@ export function assertMarkdownFits(markdown: string): void {
   }
 }
 
-function hasMarketCommentaryTag(value: unknown): boolean {
+function hasExactTag(value: unknown, tag: string): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const tags = (value as Record<string, unknown>).tags;
-  return Array.isArray(tags) && tags.includes(MARKET_COMMENTARY_TAG);
+  return Array.isArray(tags) && tags.includes(tag);
 }
 
 function deduplicateArticles(articles: ArticleMetadata[]): ArticleMetadata[] {

@@ -19,6 +19,14 @@ D1 绑定为 `DB`，数据库名 `eastmoney`。最终 schema 以 `migrations/` �
 - 保存 `topic`、`fact`、`interpretation`、`impact`。
 - 同一文章重跑抽取时，使用一个 D1 `batch()` 删除旧关键词并写入新特征与新关键词，避免半更新。
 
+## `telegram_delivery`
+
+- `article_id`：已成功推送的 DM `sentimentId`，也是投递去重主键。
+- `title`、`published_at`：当时发送的资讯标识与发布时间。
+- `sent_at`、`telegram_message_id`：Telegram 成功响应后的投递时间和消息 ID。
+- 只有标题严格以 `中国央行：` 开头且精确包含 `经济数据&政策` 标签的资讯才会写入。
+- 先发送、成功后记录；写 D1 失败时下轮可能重复发送，但不会把未发送资讯误记为成功。
+
 ## 写入规则
 
 - 轮询先用一个 `IN (...)` 批量查询现有 ID。
@@ -26,6 +34,7 @@ D1 绑定为 `DB`，数据库名 `eastmoney`。最终 schema 以 `migrations/` �
 - 已存在文章在普通轮询中不更新，避免每五分钟写放大。
 - Workflow 批量启动失败时删除本轮实际新增的 ID，使下轮可以重试。
 - 文章 link 只有为空或发生变化时更新。
+- Telegram 告警按 `telegram_delivery.article_id` 去重，不写入 `article`，也不启动文章 Workflow。
 
 ## Migration
 

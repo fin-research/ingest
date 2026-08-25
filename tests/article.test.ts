@@ -5,6 +5,7 @@ import {
   ARTICLE_METADATA_REPAIR_MODE,
   articleObjectKey,
   buildArticleMarkdown,
+  fetchCentralBankPolicyNews,
   fetchResearchReportDetail,
   fetchResearchReportList,
   prepareAiSearchMarkdown,
@@ -48,6 +49,38 @@ describe("research report helpers", () => {
     expect(result).toHaveLength(1);
     expect(requested[0]?.pathname).toBe("/data/news");
     expect(requested[0]?.searchParams.get("tag")).toBe("市场解读");
+    expect(requested[0]?.searchParams.get("pageSize")).toBe("100");
+  });
+
+  it("fetches the policy tag and strictly matches the China central bank title prefix", async () => {
+    const requested: URL[] = [];
+    const matching = {
+      ...article,
+      sentimentId: "policy-1",
+      title: "中国央行：今日开展公开市场操作",
+      tags: ["经济数据&政策", "货币政策"],
+    };
+    const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
+      requested.push(new URL(input.toString()));
+      return Response.json({
+        list: [
+          matching,
+          matching,
+          { ...matching, sentimentId: "policy-2", title: "中国央行: ASCII 冒号不匹配" },
+          { ...matching, sentimentId: "policy-3", title: "【快讯】中国央行：前面有文字" },
+          { ...matching, sentimentId: "policy-4", tags: ["货币政策"] },
+        ],
+      });
+    };
+
+    const result = await fetchCentralBankPolicyNews(
+      "https://eastmoney.hasbai.xyz/data",
+      fetcher,
+    );
+
+    expect(result.map((item) => item.id)).toEqual(["policy-1"]);
+    expect(requested[0]?.pathname).toBe("/data/news");
+    expect(requested[0]?.searchParams.get("tag")).toBe("经济数据&政策");
     expect(requested[0]?.searchParams.get("pageSize")).toBe("100");
   });
 

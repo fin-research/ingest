@@ -3,9 +3,11 @@
 ## Secret 与配置
 
 - `CF_AIG_TOKEN` 只通过 Worker Secret 注入。
+- `TELEGRAM_BOT_TOKEN` 与 `TELEGRAM_USER_ID` 使用 Cloudflare Secrets Store binding，运行时通过异步 `.get()` 读取；只在出现待发送资讯时读取。
 - `CLOUDFLARE_ACCOUNT_ID`、`AI_GATEWAY_ID` 与 `ARTICLE_API_BASE_URL` 是非敏感配置，保存在 `wrangler.jsonc`。
 - 维护脚本的 `CLOUDFLARE_API_TOKEN` 只从环境读取，不写配置、命令历史示例或日志。
 - `.env`、`.dev.vars` 和实际 token 不得提交。
+- Telegram API URL、请求体、响应头和 Secret 值不得写入日志；日志只记录公开文章 ID、计数和脱敏错误。
 
 ## 外部数据
 

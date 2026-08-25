@@ -42,6 +42,18 @@
   "secrets": {
     "required": ["CF_AIG_TOKEN"]
   },
+  "secrets_store_secrets": [
+    {
+      "binding": "TELEGRAM_BOT_TOKEN",
+      "store_id": "be6d1afe7ef54df88c65a059080a3f1f",
+      "secret_name": "TELEGRAM_BOT_TOKEN"
+    },
+    {
+      "binding": "TELEGRAM_USER_ID",
+      "store_id": "be6d1afe7ef54df88c65a059080a3f1f",
+      "secret_name": "TELEGRAM_USER_ID"
+    }
+  ],
   "ai_search": [
     {
       "binding": "FINANCE_SEARCH",
