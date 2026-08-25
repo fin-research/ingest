@@ -147,6 +147,28 @@ describe("central bank Telegram notifications", () => {
     await expect(sending).rejects.not.toThrow("secret-token");
   });
 
+  it("redacts bot credentials from Telegram fetch failures", async () => {
+    const notifier = new TelegramBotNotifier(
+      "123:secret-token",
+      "456",
+      async (): Promise<Response> => {
+        throw new TypeError(
+          "Network error at https://api.telegram.org/bot123:secret-token/sendMessage",
+        );
+      },
+    );
+
+    const sending = notifier.send({
+      id: policyNews.sentimentId,
+      title: policyNews.title,
+      publishedAt: policyNews.time,
+    });
+    await expect(sending).rejects.toThrow(
+      "Telegram sendMessage request failed: TypeError: Network error at https://api.telegram.org/bot[REDACTED]/sendMessage",
+    );
+    await expect(sending).rejects.not.toThrow("secret-token");
+  });
+
   it("formats the source title without Telegram markup", () => {
     expect(formatCentralBankNotification({
       id: policyNews.sentimentId,

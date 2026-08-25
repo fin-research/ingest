@@ -141,8 +141,10 @@ export class TelegramBotNotifier implements TelegramNotifier {
         }),
         signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS),
       });
-    } catch {
-      throw new Error("Telegram sendMessage request failed");
+    } catch (error) {
+      throw new Error(
+        `Telegram sendMessage request failed: ${redactTelegramFetchError(error, this.botToken)}`,
+      );
     }
 
     const payload = await readTelegramResponse(response);
@@ -231,6 +233,14 @@ function requireTelegramBotToken(value: string): string {
 
 function publicErrorMessage(value: unknown): string {
   return value instanceof Error ? value.message : "Unknown error";
+}
+
+function redactTelegramFetchError(value: unknown, botToken: string): string {
+  const raw = value instanceof Error ? `${value.name}: ${value.message}` : "Unknown error";
+  return raw
+    .replaceAll(botToken, "[REDACTED]")
+    .replace(/https:\/\/api\.telegram\.org\/bot[^/\s]+/g, "https://api.telegram.org/bot[REDACTED]")
+    .slice(0, 500);
 }
 
 function formatShanghaiDateTime(value: string): string {
