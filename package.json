@@ -19,7 +19,7 @@
     "@types/node": "latest",
     "typescript": "latest",
     "vitest": "latest",
-    "wrangler": "4.121.0"
+    "wrangler": "4.126.0"
   },
   "dependencies": {
     "zod": "4.4.3"
