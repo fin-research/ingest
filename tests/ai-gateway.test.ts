@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import {
@@ -35,7 +35,12 @@ function responsesOutput(value: unknown, status = "completed"): Response {
 }
 
 describe("AI Gateway provider-specific Responses", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("calls custom-opencode directly with Gateway auth and one strict JSON Schema", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetcher: typeof fetch = async (url, init) => {
       calls.push({ url: String(url), init });
@@ -93,9 +98,13 @@ describe("AI Gateway provider-specific Responses", () => {
         },
       },
     });
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"provider":"custom-opencode"'),
+    );
   });
 
   it("falls back once to the direct custom-codex Responses endpoint", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetcher: typeof fetch = async (url, init) => {
       calls.push({ url: String(url), init });
@@ -132,10 +141,10 @@ describe("AI Gateway provider-specific Responses", () => {
       { ai_provider: "custom-opencode", ai_provider_attempt: "primary" },
       { ai_provider: "custom-codex", ai_provider_attempt: "fallback" },
     ]);
-    vi.restoreAllMocks();
   });
 
   it("falls back when the primary output fails the business schema", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
     const calls: string[] = [];
     const fetcher: typeof fetch = async (url) => {
       calls.push(String(url));
@@ -156,10 +165,10 @@ describe("AI Gateway provider-specific Responses", () => {
       ),
     ).resolves.toEqual({ ok: true });
     expect(calls).toHaveLength(2);
-    vi.restoreAllMocks();
   });
 
   it("bounds provider response bodies before parsing them", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
     let calls = 0;
     const fetcher: typeof fetch = async () => {
       calls += 1;
@@ -180,7 +189,6 @@ describe("AI Gateway provider-specific Responses", () => {
       ),
     ).resolves.toEqual({ ok: true });
     expect(calls).toBe(2);
-    vi.restoreAllMocks();
   });
 
   it("does not hide a non-retryable primary request error", async () => {
@@ -256,8 +264,6 @@ describe("AI Gateway provider-specific Responses", () => {
         { provider: "custom-opencode", gatewayLogId: "log-primary" },
         { provider: "custom-codex", gatewayLogId: "log-fallback" },
       ]);
-    } finally {
-      vi.restoreAllMocks();
     }
   });
 });

@@ -336,6 +336,16 @@ async function runProvider<OUTPUT>(
       `output failed business schema: ${schemaErrorSummary(validated.error)}`,
     );
   }
+  console.log(
+    JSON.stringify({
+      event: "ai_gateway_provider_succeeded",
+      provider,
+      provider_attempt: attempt,
+      model: AI_GATEWAY_MODEL,
+      status: response.status,
+      gateway_log_id: gatewayLogId,
+    }),
+  );
   return validated.data;
 }
 
