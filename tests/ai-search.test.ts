@@ -130,22 +130,24 @@ describe("AI Search upload polling", () => {
     expect(result.status).toBe("completed");
     expect(uploads).toBe(1);
     expect(listCalls).toEqual([
-      { search: "2026-08-11/article.md", source: "builtin", per_page: 50 },
+      { key: "2026-08-11/article.md", source: "builtin", per_page: 1 },
     ]);
   });
 
-  it("uploads long encoded keys without an AI Search list filter", async () => {
-    let listCalls = 0;
-    const uploads: string[] = [];
-    const key = "2026-08-10/美银：7月CPI重要性高于就业报告，仍预计美联储9月启动加息.md";
+  it("looks up long Chinese keys exactly instead of constructing a search filter", async () => {
+    const listCalls: unknown[] = [];
+    let uploads = 0;
+    const key = "2026-08-26/债市的9月“魔咒”，这次会被打破吗？.md";
     const items: AiSearchItemsClient = {
-      async list() {
-        listCalls += 1;
-        return { result: [] };
+      async list(params) {
+        listCalls.push(params);
+        return {
+          result: [{ id: "long-item", key, status: "completed", metadata: { source: "机构" } }],
+        };
       },
-      async upload(name) {
-        uploads.push(name);
-        return { id: "long-item", key: name, status: "completed" };
+      async upload() {
+        uploads += 1;
+        return { id: "long-item", key, status: "completed" };
       },
       get() {
         return { info: async () => item("completed") };
@@ -163,8 +165,8 @@ describe("AI Search upload polling", () => {
     });
 
     expect(result.status).toBe("completed");
-    expect(listCalls).toBe(0);
-    expect(uploads).toEqual([key]);
+    expect(listCalls).toEqual([{ key, source: "builtin", per_page: 1 }]);
+    expect(uploads).toBe(0);
   });
 
   it("force-upserts repair items without constructing a key filter", async () => {

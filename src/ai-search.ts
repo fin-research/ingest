@@ -10,7 +10,7 @@ interface AiSearchItemsClient {
   list(params?: {
     page?: number;
     per_page?: number;
-    search?: string;
+    key?: string;
     source?: string;
   }): Promise<{ result: AiSearchItemSnapshot[] }>;
   upload(
@@ -33,8 +33,6 @@ interface UploadAndWaitOptions {
   now?: () => number;
 }
 
-const MAX_SAFE_ENCODED_SEARCH_LENGTH = 180;
-
 export async function uploadAndWaitForAiSearch(
   items: AiSearchItemsClient,
   key: string,
@@ -44,8 +42,8 @@ export async function uploadAndWaitForAiSearch(
   const wait = options.wait || ((delayMs: number) => scheduler.wait(delayMs));
   const now = options.now || Date.now;
   const deadline = now() + options.timeoutMs;
-  const existing = !options.forceUpload && encodedSearchLength(key) <= MAX_SAFE_ENCODED_SEARCH_LENGTH
-    ? await items.list({ search: key, source: "builtin", per_page: 50 })
+  const existing = !options.forceUpload
+    ? await items.list({ key, source: "builtin", per_page: 1 })
     : { result: [] };
   let item = existing.result.find((candidate) => candidate.key === key);
   if (!item) {
@@ -91,10 +89,6 @@ export async function uploadAndWaitForAiSearch(
     }
     item = await items.upload(key, content, { metadata: options.metadata });
   }
-}
-
-function encodedSearchLength(value: string): number {
-  return encodeURIComponent(value).length;
 }
 
 function metadataKeysAreMissing(
