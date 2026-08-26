@@ -5,12 +5,11 @@
   "packageManager": "pnpm@10.33.2",
   "type": "module",
   "scripts": {
-    "check": "wrangler types --check && tsc --noEmit && tsc -p tsconfig.scripts.json",
+    "check": "wrangler types --check && tsc --noEmit",
     "test": "vitest run",
     "types": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "maintenance:repair-metadata": "tsx scripts/reprocess-missing-ai-search-metadata.ts",
     "deploy:dry": "wrangler deploy --dry-run",
     "deploy:worker": "wrangler deploy"
   },
@@ -18,7 +17,6 @@
     "@cloudflare/vitest-pool-workers": "latest",
     "@cloudflare/workers-types": "latest",
     "@types/node": "latest",
-    "tsx": "latest",
     "typescript": "latest",
     "vitest": "latest",
     "wrangler": "4.121.0"

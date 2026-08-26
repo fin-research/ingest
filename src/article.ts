@@ -6,7 +6,6 @@ export const MARKET_COMMENTARY_TAG = "市场解读";
 export const ECONOMIC_DATA_POLICY_TAG = "经济数据&政策";
 export const CHINA_CENTRAL_BANK_TITLE_PREFIX = "中国央行：";
 export const NEWS_PAGE_SIZE = 100;
-export const ARTICLE_METADATA_REPAIR_MODE = "repair-missing-ai-search-metadata";
 
 export interface ArticleMetadata {
   /** DM sentimentId; used as the canonical article identity. */
@@ -14,10 +13,6 @@ export interface ArticleMetadata {
   newsId?: string;
   title: string;
   publishedAt: string;
-}
-
-export interface ArticleWorkflowPayload extends ArticleMetadata {
-  repairMode?: typeof ARTICLE_METADATA_REPAIR_MODE;
 }
 
 export interface ArticleDetail {
@@ -55,20 +50,6 @@ export function validateArticleMetadata(value: unknown): ArticleMetadata {
     title,
     publishedAt,
   };
-}
-
-export function validateArticleWorkflowPayload(value: unknown): ArticleWorkflowPayload {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("workflow payload must be an object");
-  }
-  const row = value as Record<string, unknown>;
-  const article = validateArticleMetadata({ ...row, time: row.publishedAt });
-  const repairMode = row.repairMode;
-  if (repairMode === undefined) return article;
-  if (repairMode !== ARTICLE_METADATA_REPAIR_MODE) {
-    throw new Error("workflow repairMode is unsupported");
-  }
-  return { ...article, repairMode };
 }
 
 export function validateArticleDetail(value: unknown): ArticleDetail {

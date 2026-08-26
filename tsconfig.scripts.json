@@ -1,8 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "types": ["node"],
-    "moduleResolution": "Bundler"
-  },
-  "include": ["scripts/**/*.ts", "src/article.ts", "src/metadata-repair.ts"]
-}

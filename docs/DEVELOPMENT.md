@@ -13,31 +13,9 @@ git diff --check
 ```
 
 - `pnpm types` 根据 `wrangler.jsonc` 更新 Worker binding 类型。
-- `pnpm check` 同时检查 Worker 与维护脚本 TypeScript。
+- `pnpm check` 检查 Worker TypeScript 与生成的 binding 类型。
 - `pnpm test` 使用 Vitest Workers pool，不访问真实生产资源。
 - `pnpm deploy:dry` 验证打包与绑定，不发布 Worker。
-
-## 维护脚本
-
-默认只盘点缺失 AI Search 元数据：
-
-```bash
-pnpm maintenance:repair-metadata
-```
-
-显式 `--execute` 会创建 Workflow 并写 D1、R2 与 AI Search：
-
-```bash
-CLOUDFLARE_API_TOKEN=... pnpm maintenance:repair-metadata -- --execute --concurrency 4
-```
-
-也可用 Wrangler OAuth 承担 D1 和 Workflow 权限：
-
-```bash
-node --env-file=../.env --import tsx scripts/reprocess-missing-ai-search-metadata.ts --wrangler-auth
-```
-
-执行前先确认账户、D1、AI Search、Workflow、盘点数量和 token 权限。执行后必须等待所有 Workflow 完成，并重新分页核对缺失字段和错误项。
 
 ## 资源初始化
 

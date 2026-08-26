@@ -49,14 +49,6 @@ DM detail
 - R2 与 AI Search 按同 key 幂等；AI Search 必须等待 `completed`，`running` 不是成功。
 - `file_content_empty` 在既定重试后仍失败时成为不可重试错误，保留可诊断状态。
 
-## 维护重跑
-
-`scripts/reprocess-missing-ai-search-metadata.ts` 盘点缺少 `published_at`、`source`、`tags` 或 `importance` 的 Items。执行模式为目标文章创建新的修复 Workflow：
-
-- 使用 DM 已清洗正文，不重新下载公众号，也不重复执行风险提示截断。
-- 仍完整覆盖 D1 特征、R2 同 key 和 AI Search 元数据。
-- 映射缺失、映射不唯一、Item 仍在运行或最终字段缺失都以非零状态结束。
-
 ## 依赖规则
 
 - `article.ts` 定义外部契约和 key；其他模块不要自行拼路径或解析未经校验的响应。

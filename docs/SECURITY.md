@@ -5,7 +5,6 @@
 - `CF_AIG_TOKEN` 只通过 Worker Secret 注入。
 - `TELEGRAM_BOT_TOKEN` 与 `TELEGRAM_USER_ID` 使用 Cloudflare Secrets Store binding，运行时通过异步 `.get()` 读取；只在出现待发送资讯时读取。
 - `CLOUDFLARE_ACCOUNT_ID`、`AI_GATEWAY_ID` 与 `ARTICLE_API_BASE_URL` 是非敏感配置，保存在 `wrangler.jsonc`。
-- 维护脚本的 `CLOUDFLARE_API_TOKEN` 只从环境读取，不写配置、命令历史示例或日志。
 - `.env`、`.dev.vars` 和实际 token 不得提交。
 - Telegram API URL、请求体、响应头和 Secret 值不得写入日志；日志只记录公开文章 ID、计数和脱敏错误。
 
@@ -27,8 +26,6 @@
 ## Cloudflare 资源
 
 - D1、R2、Workflow 与 AI Search 优先使用 binding，避免在 Worker 中使用管理 API token。
-- 维护脚本需要外部 API 权限时，先盘点后显式 `--execute`；删除或重传必须按精确 Item key。
-- 使用 `--wrangler-auth` 时，子进程主动移除 `CLOUDFLARE_API_TOKEN`，避免低权限 token 覆盖本机 OAuth。
 - AI Search 的 `queued` / `running` 状态不得当作成功；最终复核后才能报告修复完成。
 
 ## 日志

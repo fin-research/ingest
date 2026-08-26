@@ -169,44 +169,6 @@ describe("AI Search upload polling", () => {
     expect(uploads).toBe(0);
   });
 
-  it("force-upserts repair items without constructing a key filter", async () => {
-    let listCalls = 0;
-    let uploads = 0;
-    const items: AiSearchItemsClient = {
-      async list() {
-        listCalls += 1;
-        return { result: [{ ...item("completed"), metadata: { source: "机构" } }] };
-      },
-      async upload() {
-        uploads += 1;
-        return item("completed");
-      },
-      get() {
-        return { info: async () => item("completed") };
-      },
-      async delete() {},
-    };
-
-    const result = await uploadAndWaitForAiSearch(
-      items,
-      "2026-08-11/article.md",
-      "正文。 ",
-      {
-        metadata: { source: "机构" },
-        forceUpload: true,
-        timeoutMs: 480_000,
-        pollIntervalMs: 5_000,
-        fileContentEmptyRetries: 1,
-        wait: async () => undefined,
-        now: () => 0,
-      },
-    );
-
-    expect(result.status).toBe("completed");
-    expect(listCalls).toBe(0);
-    expect(uploads).toBe(1);
-  });
-
   it("deletes and uploads once more after file_content_empty", async () => {
     let uploads = 0;
     const deleted: string[] = [];

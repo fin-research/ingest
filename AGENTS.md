@@ -14,7 +14,6 @@
 - `src/wechat.ts`：公众号直连下载、Markdown 转换和风险披露清洗。
 - `src/feature-extraction.ts`：结构化特征 Schema、Prompt 和 D1 写入。
 - `src/ai-gateway.ts`、`src/ai-search.ts`：AI Gateway 与 AI Search 适配器。
-- `src/metadata-repair.ts`、`scripts/`：线上元数据修复盘点与执行。
 - `migrations/`：D1 migration。
 - `tests/`：Vitest / Workers runtime 测试。
 
@@ -45,7 +44,6 @@
 - 测试：`pnpm test`
 - 部署 dry-run：`pnpm deploy:dry`
 - D1 远端 migration：`pnpm db:migrate:remote`
-- AI Search 元数据盘点：`pnpm maintenance:repair-metadata`
 
 ## Context Routing
 

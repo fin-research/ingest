@@ -24,7 +24,6 @@ interface AiSearchItemsClient {
 
 interface UploadAndWaitOptions {
   metadata?: Record<string, unknown>;
-  forceUpload?: boolean;
   timeoutMs: number;
   pollIntervalMs: number;
   fileContentEmptyRetries: number;
@@ -42,9 +41,7 @@ export async function uploadAndWaitForAiSearch(
   const wait = options.wait || ((delayMs: number) => scheduler.wait(delayMs));
   const now = options.now || Date.now;
   const deadline = now() + options.timeoutMs;
-  const existing = !options.forceUpload
-    ? await items.list({ key, source: "builtin", per_page: 1 })
-    : { result: [] };
+  const existing = await items.list({ key, source: "builtin", per_page: 1 });
   let item = existing.result.find((candidate) => candidate.key === key);
   if (!item) {
     item = await items.upload(key, content, { metadata: options.metadata });

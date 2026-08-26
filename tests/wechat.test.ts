@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   cleanRiskDisclosureMarkdown,
-  cleanPreviouslyProcessedArticleMarkdown,
   fetchWechatArticleMarkdown,
   htmlToMarkdown,
   isWechatArticleLink,
@@ -36,16 +35,6 @@ describe("WeChat article content", () => {
     ).toBe("正文来源，详见 。");
     expect(cleanRiskDisclosureMarkdown("正文\n\n免责声明\n\n尾注")).toBe("正文");
   });
-
-  it("cleans links and images without applying non-idempotent risk disclosure trimming", () => {
-    expect(
-      cleanPreviouslyProcessedArticleMarkdown(
-        "风险提示：本段是已清洗正文的开头。[来源](https://example.com/source)\n\n"
-          + "后续正文。\n\n![图表](https://example.com/chart.png)",
-      ),
-    ).toBe("风险提示：本段是已清洗正文的开头。来源\n\n后续正文。");
-  });
-
   it("downloads and cleans WeChat Markdown before returning it", async () => {
     const fetcher = vi.fn(async () =>
       new Response(

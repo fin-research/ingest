@@ -21,9 +21,6 @@ importers:
       '@types/node':
         specifier: latest
         version: 26.2.0
-      tsx:
-        specifier: latest
-        version: 4.23.12
       typescript:
         specifier: latest
         version: 7.0.2
@@ -1738,6 +1735,7 @@ snapshots:
       esbuild: 0.28.1
     optionalDependencies:
       fsevents: 2.3.3
+    optional: true
 
   typescript@7.0.2:
     optionalDependencies:
