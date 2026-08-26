@@ -4,11 +4,25 @@ import { env } from "cloudflare:workers";
 import { introspectWorkflowInstance } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
+import {
+  AI_SEARCH_POLL_INTERVAL_MS,
+  AI_SEARCH_POLL_TIMEOUT_MS,
+} from "../src/index";
+
 declare module "cloudflare:workers" {
   interface ProvidedEnv extends Env {}
 }
 
 describe("article workflow steps", () => {
+  it("keeps AI Search polling below the per-invocation subrequest limit", () => {
+    const maximumStatusChecks = Math.ceil(
+      AI_SEARCH_POLL_TIMEOUT_MS / AI_SEARCH_POLL_INTERVAL_MS,
+    );
+
+    // Reserve requests for the initial lookup/upload and bounded error recovery.
+    expect(maximumStatusChecks + 10).toBeLessThanOrEqual(50);
+  });
+
   it("runs WeChat processing as a separate step after downloading DM detail", async () => {
     const instanceId = "workflow-step-wechat";
     const instance = await introspectWorkflowInstance(env.ARTICLE_WORKFLOW, instanceId);

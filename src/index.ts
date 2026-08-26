@@ -28,8 +28,8 @@ import {
   resolveArticleContent,
 } from "./wechat";
 
-const AI_SEARCH_POLL_TIMEOUT_MS = 8 * 60 * 1000;
-const AI_SEARCH_POLL_INTERVAL_MS = 5_000;
+export const AI_SEARCH_POLL_TIMEOUT_MS = 8 * 60 * 1000;
+export const AI_SEARCH_POLL_INTERVAL_MS = 15_000;
 
 export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleWorkflowPayload> {
   override async run(event: Readonly<WorkflowEvent<ArticleWorkflowPayload>>, step: WorkflowStep) {
