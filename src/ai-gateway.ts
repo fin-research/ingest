@@ -6,6 +6,13 @@ const MAX_AI_GATEWAY_TIMEOUT_MS = 300_000;
 export const AI_GATEWAY_MODEL = "gpt-5.6-luna" as const;
 export const AI_GATEWAY_PRIMARY_PROVIDER = "custom-opencode" as const;
 export const AI_GATEWAY_FALLBACK_PROVIDER = "custom-codex" as const;
+export const AI_GATEWAY_REASONING_EFFORT_BY_TASK = {
+  generation: "high",
+  analysis: "high",
+  summary: "low",
+} as const;
+
+export type AiGatewayTaskType = keyof typeof AI_GATEWAY_REASONING_EFFORT_BY_TASK;
 
 export interface AiGatewayMessage {
   role: "system" | "user" | "assistant";
@@ -14,8 +21,9 @@ export interface AiGatewayMessage {
 
 export interface AiGatewayOptions {
   metadata: Record<string, string | number | boolean>;
+  promptCacheKey: string;
   requestTimeoutMs: number;
-  reasoningEffort: "low" | "medium" | "high";
+  taskType: AiGatewayTaskType;
 }
 
 export interface AiGatewayCredentials {
@@ -105,6 +113,20 @@ const responseEnvelopeSchema = z
       .object({ reason: z.string().optional() })
       .nullable()
       .optional(),
+    store: z.boolean().optional(),
+    prompt_cache_key: z.string().nullable().optional(),
+    usage: z
+      .object({
+        input_tokens_details: z
+          .object({
+            cached_tokens: z.number().int().nonnegative().optional(),
+            cache_write_tokens: z.number().int().nonnegative().optional(),
+          })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 
@@ -118,6 +140,10 @@ export async function generateAiGatewayObject<OUTPUT>(
 ): Promise<OUTPUT> {
   const normalizedCredentials = validateCredentials(credentials);
   const normalizedSchemaName = requiredConfig("schema name", schemaName);
+  const normalizedPromptCacheKey = requiredConfig(
+    "prompt cache key",
+    options.promptCacheKey,
+  );
   validateRequestTimeout(options.requestTimeoutMs);
   const requestSchema = z.toJSONSchema(schema);
   delete requestSchema.$schema;
@@ -130,6 +156,7 @@ export async function generateAiGatewayObject<OUTPUT>(
     schema,
     requestSchema,
     normalizedSchemaName,
+    normalizedPromptCacheKey,
     options,
     fetcher,
   );
@@ -154,6 +181,7 @@ export async function generateAiGatewayObject<OUTPUT>(
     schema,
     requestSchema,
     normalizedSchemaName,
+    normalizedPromptCacheKey,
     options,
     fetcher,
   );
@@ -172,6 +200,7 @@ async function attemptProvider<OUTPUT>(
   schema: z.ZodType<OUTPUT>,
   requestSchema: unknown,
   schemaName: string,
+  promptCacheKey: string,
   options: AiGatewayOptions,
   fetcher: typeof fetch,
 ): Promise<
@@ -189,6 +218,7 @@ async function attemptProvider<OUTPUT>(
         schema,
         requestSchema,
         schemaName,
+        promptCacheKey,
         options,
         fetcher,
       ),
@@ -218,10 +248,12 @@ async function runProvider<OUTPUT>(
   schema: z.ZodType<OUTPUT>,
   requestSchema: unknown,
   schemaName: string,
+  promptCacheKey: string,
   options: AiGatewayOptions,
   fetcher: typeof fetch,
 ): Promise<OUTPUT> {
   const prompt = splitInstructions(messages);
+  const reasoningEffort = AI_GATEWAY_REASONING_EFFORT_BY_TASK[options.taskType];
   const url =
     `https://gateway.ai.cloudflare.com/v1/${encodeURIComponent(credentials.accountId)}/` +
     `${encodeURIComponent(credentials.gatewayId)}/${encodeURIComponent(provider)}/responses`;
@@ -246,9 +278,10 @@ async function runProvider<OUTPUT>(
       },
       body: JSON.stringify({
         model: AI_GATEWAY_MODEL,
+        store: true,
+        prompt_cache_key: promptCacheKey,
         ...(prompt.instructions ? { instructions: prompt.instructions } : {}),
-        input: prompt.input,
-        reasoning: { effort: options.reasoningEffort },
+        reasoning: { effort: reasoningEffort },
         text: {
           format: {
             type: "json_schema",
@@ -257,6 +290,7 @@ async function runProvider<OUTPUT>(
             schema: requestSchema,
           },
         },
+        input: prompt.input,
       }),
       signal: AbortSignal.timeout(options.requestTimeoutMs + 5_000),
     });
@@ -342,6 +376,17 @@ async function runProvider<OUTPUT>(
       provider,
       provider_attempt: attempt,
       model: AI_GATEWAY_MODEL,
+      task_type: options.taskType,
+      reasoning_effort: reasoningEffort,
+      requested_store: true,
+      response_store: envelope.data.store ?? null,
+      prompt_cache_key: envelope.data.prompt_cache_key ?? promptCacheKey,
+      cached_input_tokens:
+        envelope.data.usage?.input_tokens_details?.cached_tokens ?? null,
+      cache_write_input_tokens:
+        envelope.data.usage?.input_tokens_details?.cache_write_tokens ?? null,
+      encrypted_reasoning_present: hasEncryptedReasoning(envelope.data.output),
+      output_text_length: outputText.length,
       status: response.status,
       gateway_log_id: gatewayLogId,
     }),
@@ -377,6 +422,16 @@ function extractOutputText(output: unknown[]): string {
     }
   }
   return texts.join("");
+}
+
+function hasEncryptedReasoning(output: unknown[]): boolean {
+  return output.some(
+    (item) =>
+      isObject(item) &&
+      item.type === "reasoning" &&
+      typeof item.encrypted_content === "string" &&
+      item.encrypted_content.length > 0,
+  );
 }
 
 function outputError(

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   AI_GATEWAY_MODEL,
+  type AiGatewayTaskType,
   type AiGatewayMessage,
 } from "./ai-gateway";
 
@@ -62,7 +63,8 @@ export interface FeatureInferenceRequest {
   messages: AiGatewayMessage[];
   schema: typeof articleFeatureOutputSchema;
   schemaName: "article_features";
-  reasoningEffort: "low";
+  promptCacheKey: string;
+  taskType: Extract<AiGatewayTaskType, "summary">;
   enableThinking: false;
 }
 
@@ -116,7 +118,8 @@ export function buildFeatureInferenceRequest(
     ],
     schema: articleFeatureOutputSchema,
     schemaName: "article_features",
-    reasoningEffort: "low",
+    promptCacheKey: `article-features:${ARTICLE_FEATURE_PROMPT_VERSION}`,
+    taskType: "summary",
     enableThinking: false,
   };
 }

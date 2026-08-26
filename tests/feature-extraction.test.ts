@@ -38,7 +38,10 @@ describe("article feature extraction", () => {
     expect(request.schema).toBe(articleFeatureOutputSchema);
     expect(articleFeatureSchema.safeParse(validFeatures).success).toBe(true);
     expect(request.schemaName).toBe("article_features");
-    expect(request.reasoningEffort).toBe("low");
+    expect(request.promptCacheKey).toBe(
+      "article-features:v5-responses-provider-fallback",
+    );
+    expect(request.taskType).toBe("summary");
     expect(request.enableThinking).toBe(false);
     expect(request.messages[0]?.content).toContain("输出“国海固收”");
     expect(request.messages[0]?.content).toContain("若初步概括仍属于这类上位词");
@@ -48,6 +51,7 @@ describe("article feature extraction", () => {
     expect(request.messages[0]?.content).toContain("即使同一句后半段有方向也必须删除空泛分句");
     expect(request.messages[0]?.content).toContain("仅写“不确定性增加、方向纠结");
     expect(request.messages[0]?.content).toContain("硬性不得超过 55 个汉字");
+    expect(request.messages[0]?.content).not.toContain(markdown);
     expect(request.messages[1]?.content).toContain(markdown);
     expect(request.messages[1]?.content).toContain("响应 JSON Schema");
     expect(request.messages[1]?.content).not.toContain('"importance":70');

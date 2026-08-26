@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import {
+  AI_GATEWAY_REASONING_EFFORT_BY_TASK,
   AiGatewayFallbackError,
   AiGatewayResponseError,
   generateAiGatewayObject,
@@ -14,8 +15,9 @@ const credentials = {
 };
 
 const options = {
+  promptCacheKey: "article-features:v5",
   requestTimeoutMs: 120_000,
-  reasoningEffort: "low" as const,
+  taskType: "summary" as const,
   metadata: { article_id: "A001", prompt_version: "v5" },
 };
 
@@ -24,6 +26,11 @@ function responsesOutput(value: unknown, status = "completed"): Response {
     id: "resp-test",
     object: "response",
     status,
+    store: true,
+    prompt_cache_key: "article-features:v5",
+    usage: {
+      input_tokens_details: { cached_tokens: 1_024, cache_write_tokens: 0 },
+    },
     output: [
       {
         type: "message",
@@ -81,8 +88,9 @@ describe("AI Gateway provider-specific Responses", () => {
     });
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
       model: "gpt-5.6-luna",
+      store: true,
+      prompt_cache_key: "article-features:v5",
       instructions: "system",
-      input: [{ role: "user", content: "test" }],
       reasoning: { effort: "low" },
       text: {
         format: {
@@ -97,10 +105,22 @@ describe("AI Gateway provider-specific Responses", () => {
           },
         },
       },
+      input: [{ role: "user", content: "test" }],
     });
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('"provider":"custom-opencode"'),
     );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"encrypted_reasoning_present":false'),
+    );
+  });
+
+  it("fixes reasoning effort by task type", () => {
+    expect(AI_GATEWAY_REASONING_EFFORT_BY_TASK).toEqual({
+      generation: "high",
+      analysis: "high",
+      summary: "low",
+    });
   });
 
   it("falls back once to the direct custom-codex Responses endpoint", async () => {

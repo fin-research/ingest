@@ -85,8 +85,9 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleWorkflowPayl
               input.schema,
               input.schemaName,
               {
+                promptCacheKey: input.promptCacheKey,
                 requestTimeoutMs: 120_000,
-                reasoningEffort: input.reasoningEffort,
+                taskType: input.taskType,
                 metadata: {
                   article_id: article.id,
                   prompt_version: ARTICLE_FEATURE_PROMPT_VERSION,
