@@ -45,6 +45,7 @@ node --env-file=../.env --import tsx scripts/reprocess-missing-ai-search-metadat
 
 ```bash
 pnpm exec wrangler whoami
+pnpm exec wrangler secret put CF_AIG_TOKEN
 pnpm exec wrangler d1 create eastmoney --location apac
 pnpm db:migrate:remote
 pnpm exec wrangler r2 bucket info article

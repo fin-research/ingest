@@ -1,12 +1,12 @@
 import { z } from "zod";
 
 import {
-  AI_GATEWAY_MODEL,
-  type AiGatewayMessage,
+  DYNAMIC_ROUTE_MODEL,
+  type DynamicRouteMessage,
 } from "./ai-gateway";
 
-export const ARTICLE_FEATURE_MODEL = AI_GATEWAY_MODEL;
-export const ARTICLE_FEATURE_PROMPT_VERSION = "v5-responses-json-schema";
+export const ARTICLE_FEATURE_MODEL = DYNAMIC_ROUTE_MODEL;
+export const ARTICLE_FEATURE_PROMPT_VERSION = "v4-ai-sdk-json-schema";
 
 const MAX_KEYWORDS = 8;
 
@@ -59,10 +59,11 @@ export type ArticleKeyword = ArticleFeatures["keywords"][number];
 export const articleFeatureOutputSchema = articleFeatureSchema;
 
 export interface FeatureInferenceRequest {
-  messages: AiGatewayMessage[];
+  messages: DynamicRouteMessage[];
   schema: typeof articleFeatureOutputSchema;
   schemaName: "article_features";
   reasoningEffort: "low";
+  enableThinking: false;
 }
 
 export type FeatureInferenceRunner = (request: FeatureInferenceRequest) => Promise<unknown>;
@@ -116,6 +117,7 @@ export function buildFeatureInferenceRequest(
     schema: articleFeatureOutputSchema,
     schemaName: "article_features",
     reasoningEffort: "low",
+    enableThinking: false,
   };
 }
 

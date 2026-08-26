@@ -27,7 +27,7 @@ describe("article workflow steps", () => {
           stream("# 测试文章\n\n公众号正文。\n"),
         );
         await modifier.mockStepResult(
-          { name: "extract article features with Responses API" },
+          { name: "extract article features with dynamic/rag" },
           {
             title: "测试文章",
             author: "测试机构",
@@ -68,7 +68,7 @@ describe("article workflow steps", () => {
         instance.waitForStepResult({ name: "download WeChat article" }),
       ).resolves.toBeInstanceOf(ReadableStream);
       await expect(
-        instance.waitForStepResult({ name: "extract article features with Responses API" }),
+        instance.waitForStepResult({ name: "extract article features with dynamic/rag" }),
       ).resolves.toMatchObject({ importance: 60 });
     } finally {
       await instance.dispose();

@@ -27,8 +27,8 @@ const validFeatures = {
 };
 
 describe("article feature extraction", () => {
-  it("uses the default direct Responses model", () => {
-    expect(ARTICLE_FEATURE_MODEL).toBe("gpt-5.6-luna");
+  it("uses the dynamic/rag route while keeping thinking disabled", () => {
+    expect(ARTICLE_FEATURE_MODEL).toBe("dynamic/rag");
   });
 
   it("uses the strict business schema without repeating a JSON example in the prompt", () => {
@@ -39,6 +39,7 @@ describe("article feature extraction", () => {
     expect(articleFeatureSchema.safeParse(validFeatures).success).toBe(true);
     expect(request.schemaName).toBe("article_features");
     expect(request.reasoningEffort).toBe("low");
+    expect(request.enableThinking).toBe(false);
     expect(request.messages[0]?.content).toContain("输出“国海固收”");
     expect(request.messages[0]?.content).toContain("若初步概括仍属于这类上位词");
     expect(request.messages[0]?.content).toContain("可直接用于投资判断的明确观点");
