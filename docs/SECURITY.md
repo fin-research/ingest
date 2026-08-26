@@ -2,9 +2,9 @@
 
 ## Secret 与配置
 
-- `CF_AIG_TOKEN` 只通过 Worker Secret 注入。
+- 生成式 AI 只通过 Worker `AI` binding 进入 AI Gateway；Provider 密钥由 Gateway BYOK 的 `default` alias 管理，Worker 不读取 AI Gateway token 或上游 API Key。
 - `TELEGRAM_BOT_TOKEN` 与 `TELEGRAM_USER_ID` 使用 Cloudflare Secrets Store binding，运行时通过异步 `.get()` 读取；只在出现待发送资讯时读取。
-- `CLOUDFLARE_ACCOUNT_ID`、`AI_GATEWAY_ID` 与 `ARTICLE_API_BASE_URL` 是非敏感配置，保存在 `wrangler.jsonc`。
+- `CLOUDFLARE_ACCOUNT_ID` 仅供维护脚本调用 Cloudflare 管理 API；`AI_GATEWAY_ID` 与 `ARTICLE_API_BASE_URL` 是非敏感配置，保存在 `wrangler.jsonc`。
 - 维护脚本的 `CLOUDFLARE_API_TOKEN` 只从环境读取，不写配置、命令历史示例或日志。
 - `.env`、`.dev.vars` 和实际 token 不得提交。
 - Telegram API URL、请求体、响应头和 Secret 值不得写入日志；日志只记录公开文章 ID、计数和脱敏错误。
@@ -21,7 +21,7 @@
 - 所有生成式调用经过 `src/ai-gateway.ts`；业务模块不得直接拼 AI Gateway HTTP 请求。
 - Zod Schema 是结构化输出唯一来源；Prompt 不重复手写返回结构。
 - 输入正文不截断，不设置 completion token 上限；响应达到读取上限或 Schema 不完整时必须失败并重试。
-- 日志可记录文章 ID、Prompt 版本、模型和状态，不记录 token 或完整正文。
+- 日志可记录文章 ID、Prompt 版本、Provider、Gateway log ID、模型和状态，不记录密钥或完整正文。
 
 ## Cloudflare 资源
 

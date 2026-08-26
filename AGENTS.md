@@ -29,9 +29,9 @@
 - Workflow 步骤必须幂等，所有 Promise 必须 await。公众号直连失败时回退 DM 正文。
 - 正文不写 D1。D1 只保存文章元数据、结构化特征和关键词；R2 保存未经 AI Search 标点兼容修复的 Markdown。
 - R2 与 AI Search key 固定为 `yyyy-mm-dd/标题.md`。中文标点补空格只能在写 AI Search 前应用。
-- 生成式 AI 只通过 `src/ai-gateway.ts` 调用 `dynamic/rag`；Zod Schema 是结构化输出唯一来源，应用端必须校验，输入和有效输出不得截断。
+- 生成式 AI 只通过 `src/ai-gateway.ts` 使用 Worker AI binding；默认按项目组 `AI.md` 直连 Responses API，Zod Schema 是结构化输出唯一来源，应用端必须校验，输入和有效输出不得截断。
 - 外部 API 响应必须限长读取并做运行时校验；不得直接断言为业务类型。
-- Cloudflare 资源优先使用 binding；AI Gateway token 只使用 Worker Secret `CF_AIG_TOKEN`。
+- Cloudflare 资源优先使用 binding；AI Provider 密钥只由 Gateway BYOK `default` alias 管理，Worker 不读取 AI Gateway token。
 - 不手动编辑 `worker-configuration.d.ts`；使用 `pnpm types`。
 - 保留用户已有改动，包括与任务无关的工作区文件；不要回退或吸收 `.DS_Store` 等既有差异。
 - 默认交付完成验证后提交并推送 `main`，由 Cloudflare Git 自动构建部署；不得手动运行 `pnpm deploy:worker`。
