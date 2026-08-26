@@ -27,8 +27,8 @@ const validFeatures = {
 };
 
 describe("article feature extraction", () => {
-  it("uses the dynamic/rag route while keeping thinking disabled", () => {
-    expect(ARTICLE_FEATURE_MODEL).toBe("dynamic/rag");
+  it("uses gpt-5.6-luna Responses while keeping thinking disabled", () => {
+    expect(ARTICLE_FEATURE_MODEL).toBe("gpt-5.6-luna");
   });
 
   it("uses the strict business schema without repeating a JSON example in the prompt", () => {

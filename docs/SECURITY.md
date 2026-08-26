@@ -18,10 +18,10 @@
 
 ## AI
 
-- 所有生成式调用经过 `src/ai-gateway.ts`；业务模块不得直接拼 AI Gateway HTTP 请求。
+- 所有生成式调用经过 `src/ai-gateway.ts`；业务模块不得自行拼 AI Gateway HTTP 请求。Adapter 只允许调用固定的 `custom-opencode/responses` 与 `custom-codex/responses` provider-specific URL，避免进入 Universal 适配层。
 - Zod Schema 是结构化输出唯一来源；Prompt 不重复手写返回结构。
 - 输入正文不截断，不设置 completion token 上限；响应达到读取上限或 Schema 不完整时必须失败并重试。
-- 日志可记录文章 ID、Prompt 版本、模型和状态，不记录 token 或完整正文。
+- 日志可记录文章 ID、Prompt 版本、模型、Provider 尝试顺序、HTTP 状态和 Gateway log ID，不记录 token、完整正文或完整 Provider 响应。
 
 ## Cloudflare 资源
 

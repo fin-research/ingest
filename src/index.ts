@@ -12,7 +12,7 @@ import {
   validateArticleWorkflowPayload,
 } from "./article";
 import { uploadAndWaitForAiSearch } from "./ai-search";
-import { generateDynamicRouteObject } from "./ai-gateway";
+import { generateAiGatewayObject } from "./ai-gateway";
 import {
   ARTICLE_FEATURE_PROMPT_VERSION,
   buildAiSearchMetadata,
@@ -70,12 +70,12 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleWorkflowPayl
     const markdown = await new Response(documentStream).text();
 
     const extracted = await step.do(
-      "extract article features with dynamic/rag",
+      "extract article features with Responses API",
       { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" }, timeout: "5 minutes" },
       async () => {
         return await extractArticleFeatures(
           async (input) =>
-            await generateDynamicRouteObject(
+            await generateAiGatewayObject(
               {
                 accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
                 gatewayId: this.env.AI_GATEWAY_ID,
@@ -86,13 +86,11 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleWorkflowPayl
               input.schemaName,
               {
                 requestTimeoutMs: 120_000,
-                maxRetries: 0,
                 reasoningEffort: input.reasoningEffort,
-                enableThinking: input.enableThinking,
                 metadata: {
                   article_id: article.id,
                   prompt_version: ARTICLE_FEATURE_PROMPT_VERSION,
-                  tags: "eastmoney,feature-extraction,model:dynamic-rag",
+                  tags: "eastmoney,feature-extraction,model:gpt-5.6-luna",
                 },
               },
             ),

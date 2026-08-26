@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import {
+  AiGatewayFallbackError,
   AiGatewayResponseError,
-  generateDynamicRouteObject,
-  generateDynamicRouteText,
+  generateAiGatewayObject,
 } from "../src/ai-gateway";
 
 const credentials = {
@@ -15,81 +15,39 @@ const credentials = {
 
 const options = {
   requestTimeoutMs: 120_000,
-  maxRetries: 0,
   reasoningEffort: "low" as const,
-  enableThinking: false,
-  metadata: { article_id: "A001", prompt_version: "v4" },
+  metadata: { article_id: "A001", prompt_version: "v5" },
 };
 
-function chatCompletion(content: string): Response {
+function responsesOutput(value: unknown, status = "completed"): Response {
   return Response.json({
-    id: "chatcmpl-test",
-    object: "chat.completion",
-    created: 1,
-    model: "gpt-5.6-luna",
-    choices: [
-      { index: 0, message: { role: "assistant", content }, finish_reason: null },
+    id: "resp-test",
+    object: "response",
+    status,
+    output: [
+      {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: JSON.stringify(value) }],
+      },
     ],
-    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
   });
 }
 
-describe("AI Gateway dynamic route", () => {
-  it("uses the AI SDK and authenticated compat endpoint with the verified allowlist", async () => {
+describe("AI Gateway provider-specific Responses", () => {
+  it("calls custom-opencode directly with Gateway auth and one strict JSON Schema", async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetcher: typeof fetch = async (url, init) => {
       calls.push({ url: String(url), init });
-      return chatCompletion("OK");
+      return responsesOutput({ ok: true });
     };
 
-    const result = await generateDynamicRouteText(
+    const output = await generateAiGatewayObject(
       credentials,
-      [{ role: "user", content: "test" }],
-      options,
-      fetcher,
-    );
-
-    expect(result).toBe("OK");
-    expect(calls[0]?.url).toBe(
-      "https://gateway.ai.cloudflare.com/v1/account-id/default/compat/chat/completions",
-    );
-    const headers = new Headers(calls[0]?.init?.headers);
-    expect(headers.get("cf-aig-authorization")).toBe("Bearer test-token");
-    expect(headers.get("cf-aig-skip-cache")).toBe("true");
-    expect(headers.get("cf-aig-collect-log")).toBe("true");
-    expect(headers.get("cf-aig-request-timeout")).toBe("120000");
-    expect(JSON.parse(headers.get("cf-aig-metadata") ?? "null")).toEqual(
-      options.metadata,
-    );
-    const query = JSON.parse(String(calls[0]?.init?.body));
-    expect(query).toMatchObject({
-      model: "dynamic/rag",
-      temperature: 0.1,
-      reasoning_effort: "low",
-      chat_template_kwargs: { enable_thinking: false },
-      messages: [{ role: "user", content: "test" }],
-    });
-    for (const rejected of [
-      "top_p",
-      "top_k",
-      "repetition_penalty",
-      "seed",
-      "max_completion_tokens",
-    ]) {
-      expect(query).not.toHaveProperty(rejected);
-    }
-  });
-
-  it("sends one standard JSON Schema and returns an SDK-validated object", async () => {
-    let query: Record<string, unknown> = {};
-    const fetcher: typeof fetch = async (_url, init) => {
-      query = JSON.parse(String(init?.body));
-      return chatCompletion('{"ok":true}');
-    };
-
-    const output = await generateDynamicRouteObject(
-      credentials,
-      [{ role: "user", content: "test" }],
+      [
+        { role: "system", content: "system" },
+        { role: "user", content: "test" },
+      ],
       z.object({ ok: z.boolean() }).strict(),
       "probe",
       options,
@@ -97,32 +55,62 @@ describe("AI Gateway dynamic route", () => {
     );
 
     expect(output).toEqual({ ok: true });
-    expect(query.response_format).toMatchObject({
-      type: "json_schema",
-      json_schema: {
-        name: "probe",
-        strict: true,
-        schema: {
-          type: "object",
-          required: ["ok"],
-          additionalProperties: false,
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe(
+      "https://gateway.ai.cloudflare.com/v1/account-id/default/custom-opencode/responses",
+    );
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(calls[0]?.init?.signal).toBeInstanceOf(AbortSignal);
+    const headers = new Headers(calls[0]?.init?.headers);
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(headers.get("cf-aig-authorization")).toBe("Bearer test-token");
+    expect(headers.get("cf-aig-skip-cache")).toBe("true");
+    expect(headers.get("cf-aig-collect-log")).toBe("true");
+    expect(headers.get("cf-aig-request-timeout")).toBe("120000");
+    expect(JSON.parse(headers.get("cf-aig-metadata") ?? "null")).toEqual({
+      article_id: "A001",
+      prompt_version: "v5",
+      ai_model: "gpt-5.6-luna",
+      ai_provider: "custom-opencode",
+      ai_provider_attempt: "primary",
+    });
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      model: "gpt-5.6-luna",
+      instructions: "system",
+      input: [{ role: "user", content: "test" }],
+      reasoning: { effort: "low" },
+      text: {
+        format: {
+          type: "json_schema",
+          name: "probe",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { ok: { type: "boolean" } },
+            required: ["ok"],
+            additionalProperties: false,
+          },
         },
       },
     });
-    expect(query.messages).toEqual([
-      {
-        role: "system",
-        content: expect.stringContaining('"required":["ok"]'),
-      },
-      { role: "user", content: "test" },
-    ]);
   });
 
-  it("rejects JSON that does not satisfy the response schema", async () => {
-    const fetcher: typeof fetch = async () => chatCompletion('{"ok":"yes"}');
+  it("falls back once to the direct custom-codex Responses endpoint", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const fetcher: typeof fetch = async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (calls.length === 1) {
+        return new Response('{"error":{"message":"upstream unavailable"}}', {
+          status: 503,
+          headers: { "cf-aig-log-id": "log-primary" },
+        });
+      }
+      return responsesOutput({ ok: true });
+    };
+    vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await expect(
-      generateDynamicRouteObject(
+      generateAiGatewayObject(
         credentials,
         [{ role: "user", content: "test" }],
         z.object({ ok: z.boolean() }).strict(),
@@ -130,26 +118,146 @@ describe("AI Gateway dynamic route", () => {
         options,
         fetcher,
       ),
-    ).rejects.toMatchObject({ name: "AI_NoObjectGeneratedError" });
+    ).resolves.toEqual({ ok: true });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://gateway.ai.cloudflare.com/v1/account-id/default/custom-opencode/responses",
+      "https://gateway.ai.cloudflare.com/v1/account-id/default/custom-codex/responses",
+    ]);
+    expect(
+      calls.map((call) =>
+        JSON.parse(new Headers(call.init?.headers).get("cf-aig-metadata") ?? "null"),
+      ),
+    ).toMatchObject([
+      { ai_provider: "custom-opencode", ai_provider_attempt: "primary" },
+      { ai_provider: "custom-codex", ai_provider_attempt: "fallback" },
+    ]);
+    vi.restoreAllMocks();
   });
 
-  it("preserves the upstream status and gateway log id on errors", async () => {
-    const fetcher: typeof fetch = async () =>
-      new Response('{"error":"invalid model"}', {
-        status: 400,
-        headers: { "cf-aig-log-id": "log-ingest" },
-      });
+  it("falls back when the primary output fails the business schema", async () => {
+    const calls: string[] = [];
+    const fetcher: typeof fetch = async (url) => {
+      calls.push(String(url));
+      return calls.length === 1
+        ? responsesOutput({ ok: "yes" })
+        : responsesOutput({ ok: true });
+    };
+    vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await expect(
-      generateDynamicRouteText(
+      generateAiGatewayObject(
         credentials,
         [{ role: "user", content: "test" }],
+        z.object({ ok: z.boolean() }).strict(),
+        "probe",
+        options,
+        fetcher,
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(calls).toHaveLength(2);
+    vi.restoreAllMocks();
+  });
+
+  it("bounds provider response bodies before parsing them", async () => {
+    let calls = 0;
+    const fetcher: typeof fetch = async () => {
+      calls += 1;
+      return calls === 1
+        ? new Response("", { headers: { "content-length": "2097153" } })
+        : responsesOutput({ ok: true });
+    };
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      generateAiGatewayObject(
+        credentials,
+        [{ role: "user", content: "test" }],
+        z.object({ ok: z.boolean() }).strict(),
+        "probe",
+        options,
+        fetcher,
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(calls).toBe(2);
+    vi.restoreAllMocks();
+  });
+
+  it("does not hide a non-retryable primary request error", async () => {
+    const calls: string[] = [];
+    const fetcher: typeof fetch = async (url) => {
+      calls.push(String(url));
+      return new Response('{"error":{"message":"invalid model"}}', {
+        status: 400,
+        headers: { "cf-aig-log-id": "log-bad-request" },
+      });
+    };
+
+    await expect(
+      generateAiGatewayObject(
+        credentials,
+        [{ role: "user", content: "test" }],
+        z.object({ ok: z.boolean() }).strict(),
+        "probe",
         options,
         fetcher,
       ),
     ).rejects.toMatchObject({
+      provider: "custom-opencode",
       status: 400,
-      gatewayLogId: "log-ingest",
+      gatewayLogId: "log-bad-request",
+      retryable: false,
     } satisfies Partial<AiGatewayResponseError>);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("rejects local configuration errors before a provider call", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+
+    await expect(
+      generateAiGatewayObject(
+        { ...credentials, token: "" },
+        [{ role: "user", content: "test" }],
+        z.object({ ok: z.boolean() }).strict(),
+        "probe",
+        options,
+        fetcher,
+      ),
+    ).rejects.toThrow("authentication token is not configured");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("preserves both providers and Gateway log IDs when both attempts fail", async () => {
+    const fetcher: typeof fetch = async (url) => {
+      const fallback = String(url).includes("custom-codex");
+      return new Response(
+        JSON.stringify({ error: { message: fallback ? "fallback down" : "primary down" } }),
+        {
+          status: fallback ? 502 : 503,
+          headers: { "cf-aig-log-id": fallback ? "log-fallback" : "log-primary" },
+        },
+      );
+    };
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await generateAiGatewayObject(
+        credentials,
+        [{ role: "user", content: "test" }],
+        z.object({ ok: z.boolean() }).strict(),
+        "probe",
+        options,
+        fetcher,
+      );
+      throw new Error("expected both providers to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AiGatewayFallbackError);
+      expect((error as AiGatewayFallbackError).failures).toMatchObject([
+        { provider: "custom-opencode", gatewayLogId: "log-primary" },
+        { provider: "custom-codex", gatewayLogId: "log-fallback" },
+      ]);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });

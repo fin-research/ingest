@@ -44,7 +44,7 @@ DM detail
 
 - DM 详情步骤幂等更新原文 link。
 - 公众号下载是独立可重试步骤；失败回退 DM 已清洗正文。
-- AI 特征抽取通过统一 adapter 和 Zod Schema，失败不保存残缺结果。
+- AI 特征抽取通过统一 adapter 和 Zod Schema，先直连 AI Gateway 的 `custom-opencode/responses`，遇到网络、超时、限流、上游服务或输出校验错误时再调用 `custom-codex/responses`；两次均失败才交给 Workflow 步骤重试，残缺结果不保存。
 - 特征与关键词在一次 D1 `batch()` 中覆盖。
 - R2 与 AI Search 按同 key 幂等；AI Search 必须等待 `completed`，`running` 不是成功。
 - `file_content_empty` 在既定重试后仍失败时成为不可重试错误，保留可诊断状态。
