@@ -113,7 +113,6 @@ const responseEnvelopeSchema = z
       .object({ reason: z.string().optional() })
       .nullable()
       .optional(),
-    store: z.boolean().optional(),
     prompt_cache_key: z.string().nullable().optional(),
     usage: z
       .object({
@@ -278,10 +277,9 @@ async function runProvider<OUTPUT>(
       },
       body: JSON.stringify({
         model: AI_GATEWAY_MODEL,
-        store: true,
         prompt_cache_key: promptCacheKey,
         ...(prompt.instructions ? { instructions: prompt.instructions } : {}),
-        reasoning: { effort: reasoningEffort },
+        reasoning: { effort: reasoningEffort, summary: "auto" },
         text: {
           format: {
             type: "json_schema",
@@ -370,6 +368,7 @@ async function runProvider<OUTPUT>(
       `output failed business schema: ${schemaErrorSummary(validated.error)}`,
     );
   }
+  const reasoningSummary = reasoningSummaryMetrics(envelope.data.output);
   console.log(
     JSON.stringify({
       event: "ai_gateway_provider_succeeded",
@@ -378,8 +377,9 @@ async function runProvider<OUTPUT>(
       model: AI_GATEWAY_MODEL,
       task_type: options.taskType,
       reasoning_effort: reasoningEffort,
-      requested_store: true,
-      response_store: envelope.data.store ?? null,
+      requested_reasoning_summary: "auto",
+      reasoning_summary_count: reasoningSummary.count,
+      reasoning_summary_text_length: reasoningSummary.textLength,
       prompt_cache_key: envelope.data.prompt_cache_key ?? promptCacheKey,
       cached_input_tokens:
         envelope.data.usage?.input_tokens_details?.cached_tokens ?? null,
@@ -432,6 +432,31 @@ function hasEncryptedReasoning(output: unknown[]): boolean {
       typeof item.encrypted_content === "string" &&
       item.encrypted_content.length > 0,
   );
+}
+
+function reasoningSummaryMetrics(output: unknown[]): {
+  count: number;
+  textLength: number;
+} {
+  let count = 0;
+  let textLength = 0;
+  for (const item of output) {
+    if (!isObject(item) || item.type !== "reasoning" || !Array.isArray(item.summary)) {
+      continue;
+    }
+    for (const summary of item.summary) {
+      if (
+        !isObject(summary) ||
+        summary.type !== "summary_text" ||
+        typeof summary.text !== "string"
+      ) {
+        continue;
+      }
+      count += 1;
+      textLength += summary.text.length;
+    }
+  }
+  return { count, textLength };
 }
 
 function outputError(

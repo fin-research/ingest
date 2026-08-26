@@ -26,12 +26,18 @@ function responsesOutput(value: unknown, status = "completed"): Response {
     id: "resp-test",
     object: "response",
     status,
-    store: true,
     prompt_cache_key: "article-features:v5",
     usage: {
       input_tokens_details: { cached_tokens: 1_024, cache_write_tokens: 0 },
     },
     output: [
+      {
+        type: "reasoning",
+        summary: [
+          { type: "summary_text", text: "Reviewed the available evidence." },
+        ],
+        encrypted_content: "encrypted-reasoning",
+      },
       {
         type: "message",
         role: "assistant",
@@ -88,10 +94,9 @@ describe("AI Gateway provider-specific Responses", () => {
     });
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
       model: "gpt-5.6-luna",
-      store: true,
       prompt_cache_key: "article-features:v5",
       instructions: "system",
-      reasoning: { effort: "low" },
+      reasoning: { effort: "low", summary: "auto" },
       text: {
         format: {
           type: "json_schema",
@@ -111,7 +116,16 @@ describe("AI Gateway provider-specific Responses", () => {
       expect.stringContaining('"provider":"custom-opencode"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('"encrypted_reasoning_present":false'),
+      expect.stringContaining('"requested_reasoning_summary":"auto"'),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"reasoning_summary_count":1'),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"reasoning_summary_text_length":32'),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"encrypted_reasoning_present":true'),
     );
   });
 
