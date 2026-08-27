@@ -16,7 +16,7 @@ git diff --check
 - `pnpm check` 检查 Worker TypeScript 与生成的 binding 类型。
 - `pnpm test` 使用 Vitest Workers pool，不访问真实生产资源。
 - `pnpm deploy:dry` 验证打包与绑定，不发布 Worker。
-- `article` Workflow 由研报 Cron 创建实例；`telegram` Workflow 使用同一工作日 5 分钟周期的独立 schedule，可在 Cloudflare Workflow 实例中逐步排查。
+- `article` Workflow 由研报采集按文章创建实例；`telegram` Workflow 由现有 Worker Cron 每轮创建实例，不使用仅付费 Workers 计划可用的 Workflow schedule。两者都可在 Cloudflare Workflow 实例中逐步排查。
 
 ## 资源初始化
 

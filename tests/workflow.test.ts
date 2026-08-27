@@ -120,7 +120,10 @@ describe("Telegram workflow steps", () => {
         );
       });
 
-      await env.TELEGRAM_WORKFLOW.create({ id: instanceId, params: {} });
+      await env.TELEGRAM_WORKFLOW.create({
+        id: instanceId,
+        params: { scheduledAt: "2026-08-26T01:25:00.000Z" },
+      });
 
       await expect(instance.waitForStatus("complete")).resolves.toBeUndefined();
       await expect(

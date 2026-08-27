@@ -32,6 +32,10 @@ import { isWechatArticleLink, resolveArticleContent } from "./wechat";
 export const AI_SEARCH_POLL_TIMEOUT_MS = 8 * 60 * 1000;
 export const AI_SEARCH_POLL_INTERVAL_MS = 15_000;
 
+export interface TelegramWorkflowParams {
+  scheduledAt: string;
+}
+
 export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
   override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {
     const article = validateArticleMetadata({
@@ -158,12 +162,12 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
   }
 }
 
-export class TelegramWorkflow extends WorkflowEntrypoint<Env, Record<string, never>> {
+export class TelegramWorkflow extends WorkflowEntrypoint<Env, TelegramWorkflowParams> {
   override async run(
-    event: Readonly<WorkflowEvent<Record<string, never>>>,
+    event: Readonly<WorkflowEvent<TelegramWorkflowParams>>,
     step: WorkflowStep,
   ): Promise<TelegramCollectionSummary> {
-    const sentAt = new Date(event.schedule?.scheduledTime ?? event.timestamp).toISOString();
+    const sentAt = requireIsoDateTime(event.payload.scheduledAt, "Telegram scheduledAt");
     const repository = new D1TelegramDeliveryRepository(this.env.DB);
     const summary = await runTelegramNotificationWorkflow({
       fetchArticles: async () => await step.do(
@@ -233,16 +237,45 @@ export default {
 
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     const scheduledAt = new Date(controller.scheduledTime).toISOString();
-    try {
-      const summary = await collectResearchReports(env, scheduledAt);
-      console.log(JSON.stringify({ event: "research_report_ingest", ...summary }));
-    } catch (error) {
+    const telegramInstanceId = `telegram-${controller.scheduledTime}`;
+    const results = await Promise.allSettled([
+      collectResearchReports(env, scheduledAt),
+      env.TELEGRAM_WORKFLOW.create({
+        id: telegramInstanceId,
+        params: { scheduledAt },
+      }),
+    ]);
+    const [researchReports, telegramWorkflow] = results;
+
+    if (researchReports?.status === "fulfilled") {
+      console.log(JSON.stringify({ event: "research_report_ingest", ...researchReports.value }));
+    } else {
       console.error(JSON.stringify({
         event: "research_report_ingest_failed",
-        error: errorMessage(error),
+        error: errorMessage(researchReports?.reason),
       }));
-      throw error;
     }
+
+    if (telegramWorkflow?.status === "fulfilled") {
+      console.log(JSON.stringify({
+        event: "telegram_workflow_dispatched",
+        workflowInstanceId: telegramWorkflow.value.id,
+        scheduledAt,
+      }));
+    } else {
+      console.error(JSON.stringify({
+        event: "telegram_workflow_dispatch_failed",
+        workflowInstanceId: telegramInstanceId,
+        error: errorMessage(telegramWorkflow?.reason),
+      }));
+    }
+
+    const failed = results
+      .map((result, index) => result.status === "rejected"
+        ? ["research_reports", "telegram_workflow"][index]
+        : null)
+      .filter((name): name is string => name !== null);
+    if (failed.length > 0) throw new Error(`scheduled collection failed: ${failed.join(", ")}`);
   },
 } satisfies ExportedHandler<Env>;
 
@@ -255,4 +288,10 @@ function markdownStream(
 
 function errorMessage(value: unknown): string {
   return value instanceof Error ? value.message : "Unknown error";
+}
+
+function requireIsoDateTime(value: string, label: string): string {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.valueOf())) throw new Error(`${label} must be an ISO date-time`);
+  return timestamp.toISOString();
 }
