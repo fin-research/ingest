@@ -21,11 +21,13 @@ D1 绑定为 `DB`，数据库名 `eastmoney`。最终 schema 以 `migrations/` �
 
 ## `telegram_delivery`
 
-- `article_id`：已成功推送的 DM `sentimentId`，也是投递去重主键。
+- `article_id`：待发送或已成功推送的 DM `sentimentId`，也是抓取去重主键。
 - `title`、`published_at`：当时发送的资讯标识与发布时间。
-- `sent_at`、`telegram_message_id`：Telegram 成功响应后的投递时间和消息 ID。
+- `discovered_at`：Cron 首次发现并由 Workflow 入库的时间。
+- `workflow_instance_id`：首次成功入库该资讯的 Telegram Workflow；并发实例不能发送不属于自己的记录。
+- `sent_at`、`telegram_message_id`：初始为空；Telegram 成功响应后一起更新为投递时间和消息 ID。
 - 只有标题以 `中国央行` 开头且精确包含 `经济数据&政策` 标签的资讯才会写入；兼容标题有无全角冒号。
-- 先发送、成功后由独立步骤记录；D1 失败只重试记账步骤。Telegram 网络结果不确定时仍可能出现极少量重复，但不会把未发送资讯误记为成功。
+- Workflow 第一步先写待发送记录，第二步发送并更新成功字段。第二步重试时查询已有 message ID 并跳过已完成记录；Telegram 网络结果不确定时仍可能出现极少量重复，但不会把未发送资讯误记为成功。
 
 ## 写入规则
 
@@ -34,7 +36,7 @@ D1 绑定为 `DB`，数据库名 `eastmoney`。最终 schema 以 `migrations/` �
 - 已存在文章在普通轮询中不更新，避免每五分钟写放大。
 - Workflow 批量启动失败时删除本轮实际新增的 ID，使下轮可以重试。
 - 文章 link 只有为空或发生变化时更新。
-- Telegram 告警按 `telegram_delivery.article_id` 去重，不写入 `article`，也不启动文章 Workflow；发送与记账是 Telegram Workflow 的两个独立可重试步骤。
+- Telegram 抓取在 Workflow 外按 `telegram_delivery.article_id` 去重；无新增时不创建 Workflow。新增批次只创建一个 Telegram Workflow，并依次执行“入库”“发送”两个可重试步骤。
 
 ## Migration
 

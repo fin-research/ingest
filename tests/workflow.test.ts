@@ -91,7 +91,7 @@ describe("article workflow steps", () => {
 });
 
 describe("Telegram workflow steps", () => {
-  it("keeps source fetch, Telegram send, and delivery recording independently retryable", async () => {
+  it("stores a new batch before sending it to Telegram", async () => {
     const instanceId = "workflow-step-telegram";
     const article = {
       id: "2026082600010688293",
@@ -103,33 +103,35 @@ describe("Telegram workflow steps", () => {
     try {
       await instance.modify(async (modifier) => {
         await modifier.mockStepResult(
-          { name: "fetch central bank policy news" },
+          { name: "store Telegram notifications" },
           [article],
         );
         await modifier.mockStepResult(
-          { name: "find delivered Telegram notifications" },
-          [],
-        );
-        await modifier.mockStepResult(
-          { name: `send Telegram notification ${article.id}` },
-          12096,
-        );
-        await modifier.mockStepResult(
-          { name: `record Telegram delivery ${article.id}` },
-          { articleId: article.id, messageId: 12096 },
+          { name: "send Telegram notifications" },
+          {
+            stored: 1,
+            sent: 1,
+            alreadySent: 0,
+            deliveries: [{ articleId: article.id, messageId: 12096 }],
+          },
         );
       });
 
       await env.TELEGRAM_WORKFLOW.create({
         id: instanceId,
-        params: { scheduledAt: "2026-08-26T01:25:00.000Z" },
+        params: {
+          articles: [article],
+          discoveredAt: "2026-08-26T01:25:00.000Z",
+        },
       });
 
       await expect(instance.waitForStatus("complete")).resolves.toBeUndefined();
       await expect(
-        instance.waitForStepResult({ name: `send Telegram notification ${article.id}` }),
-      ).resolves.toBe(12096);
-      await expect(instance.getOutput()).resolves.toEqual({ matched: 1, existing: 0, sent: 1 });
+        instance.waitForStepResult({ name: "store Telegram notifications" }),
+      ).resolves.toEqual([article]);
+      await expect(
+        instance.waitForStepResult({ name: "send Telegram notifications" }),
+      ).resolves.toMatchObject({ stored: 1, sent: 1, alreadySent: 0 });
     } finally {
       await instance.dispose();
     }

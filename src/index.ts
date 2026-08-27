@@ -4,7 +4,6 @@ import { NonRetryableError } from "cloudflare:workflows";
 import {
   articleObjectKey,
   buildArticleMarkdown,
-  fetchCentralBankPolicyNews,
   fetchResearchReportDetail,
   prepareAiSearchMarkdown,
   type ArticleMetadata,
@@ -22,19 +21,16 @@ import {
 } from "./feature-extraction";
 import { collectResearchReports, updateArticleLink } from "./ingest";
 import {
+  collectCentralBankNotifications,
   createTelegramNotifier,
   D1TelegramDeliveryRepository,
-  runTelegramNotificationWorkflow,
-  type TelegramCollectionSummary,
+  type TelegramDeliverySummary,
+  type TelegramWorkflowParams,
 } from "./telegram";
 import { isWechatArticleLink, resolveArticleContent } from "./wechat";
 
 export const AI_SEARCH_POLL_TIMEOUT_MS = 8 * 60 * 1000;
 export const AI_SEARCH_POLL_INTERVAL_MS = 15_000;
-
-export interface TelegramWorkflowParams {
-  scheduledAt: string;
-}
 
 export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
   override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {
@@ -166,51 +162,72 @@ export class TelegramWorkflow extends WorkflowEntrypoint<Env, TelegramWorkflowPa
   override async run(
     event: Readonly<WorkflowEvent<TelegramWorkflowParams>>,
     step: WorkflowStep,
-  ): Promise<TelegramCollectionSummary> {
-    const sentAt = requireIsoDateTime(event.payload.scheduledAt, "Telegram scheduledAt");
+  ): Promise<TelegramDeliverySummary> {
+    const discoveredAt = requireIsoDateTime(
+      event.payload.discoveredAt,
+      "Telegram discoveredAt",
+    );
+    if (!Array.isArray(event.payload.articles)) {
+      throw new Error("Telegram articles must be an array");
+    }
+    const articles = event.payload.articles.map((article) => validateArticleMetadata({
+      ...article,
+      time: article.publishedAt,
+    }));
     const repository = new D1TelegramDeliveryRepository(this.env.DB);
-    const summary = await runTelegramNotificationWorkflow({
-      fetchArticles: async () => await step.do(
-        "fetch central bank policy news",
-        {
-          retries: { limit: 5, delay: "10 seconds", backoff: "exponential" },
-          timeout: "2 minutes",
-        },
-        async () => await fetchCentralBankPolicyNews(this.env.ARTICLE_API_BASE_URL),
-      ),
-      findDeliveredIds: async (ids) => new Set(await step.do(
-        "find delivered Telegram notifications",
-        {
-          retries: { limit: 5, delay: "10 seconds", backoff: "exponential" },
-          timeout: "2 minutes",
-        },
-        async () => [...await repository.findDeliveredIds(ids)],
-      )),
-      send: async (article) => await step.do(
-        `send Telegram notification ${article.id}`,
-        {
-          retries: { limit: 3, delay: "10 seconds", backoff: "exponential" },
-          timeout: "1 minute",
-        },
-        async () => {
-          const notifier = await createTelegramNotifier(this.env);
-          return await notifier.send(article);
-        },
-      ),
-      markDelivered: async (article, messageId) => {
-        await step.do(
-          `record Telegram delivery ${article.id}`,
-          {
-            retries: { limit: 5, delay: "10 seconds", backoff: "exponential" },
-            timeout: "2 minutes",
-          },
-          async () => {
-            await repository.markDelivered(article, sentAt, messageId);
-            return { articleId: article.id, messageId };
-          },
-        );
+    const stored = await step.do(
+      "store Telegram notifications",
+      {
+        retries: { limit: 5, delay: "10 seconds", backoff: "exponential" },
+        timeout: "2 minutes",
       },
-    });
+      async () => await repository.insertPending(articles, discoveredAt, event.instanceId),
+    );
+    if (stored.length === 0) {
+      return { stored: 0, sent: 0, alreadySent: 0, deliveries: [] };
+    }
+
+    const summary = await step.do(
+      "send Telegram notifications",
+      {
+        retries: { limit: 3, delay: "10 seconds", backoff: "exponential" },
+        timeout: "5 minutes",
+      },
+      async () => {
+        const delivered = await repository.findDeliveredMessageIds(
+          stored.map((article) => article.id),
+        );
+        const deliveries = [...delivered].map(([articleId, messageId]) => ({
+          articleId,
+          messageId,
+        }));
+        let sent = 0;
+        let notifier: Awaited<ReturnType<typeof createTelegramNotifier>> | undefined;
+
+        for (const article of stored) {
+          if (delivered.has(article.id)) continue;
+          notifier ??= await createTelegramNotifier(this.env);
+          let messageId: number;
+          try {
+            messageId = await notifier.send(article);
+          } catch (error) {
+            throw new Error(
+              `Telegram notification failed for article ${article.id}: ${errorMessage(error)}`,
+            );
+          }
+          await repository.markDelivered(article.id, new Date().toISOString(), messageId);
+          deliveries.push({ articleId: article.id, messageId });
+          sent += 1;
+        }
+
+        return {
+          stored: stored.length,
+          sent,
+          alreadySent: delivered.size,
+          deliveries,
+        };
+      },
+    );
     console.log(JSON.stringify({
       event: "central_bank_telegram_notifications",
       workflowInstanceId: event.instanceId,
@@ -237,15 +254,11 @@ export default {
 
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     const scheduledAt = new Date(controller.scheduledTime).toISOString();
-    const telegramInstanceId = `telegram-${controller.scheduledTime}`;
     const results = await Promise.allSettled([
       collectResearchReports(env, scheduledAt),
-      env.TELEGRAM_WORKFLOW.create({
-        id: telegramInstanceId,
-        params: { scheduledAt },
-      }),
+      collectCentralBankNotifications(env, scheduledAt),
     ]);
-    const [researchReports, telegramWorkflow] = results;
+    const [researchReports, telegramNotifications] = results;
 
     if (researchReports?.status === "fulfilled") {
       console.log(JSON.stringify({ event: "research_report_ingest", ...researchReports.value }));
@@ -256,23 +269,21 @@ export default {
       }));
     }
 
-    if (telegramWorkflow?.status === "fulfilled") {
+    if (telegramNotifications?.status === "fulfilled") {
       console.log(JSON.stringify({
-        event: "telegram_workflow_dispatched",
-        workflowInstanceId: telegramWorkflow.value.id,
-        scheduledAt,
+        event: "central_bank_telegram_collection",
+        ...telegramNotifications.value,
       }));
     } else {
       console.error(JSON.stringify({
-        event: "telegram_workflow_dispatch_failed",
-        workflowInstanceId: telegramInstanceId,
-        error: errorMessage(telegramWorkflow?.reason),
+        event: "central_bank_telegram_collection_failed",
+        error: errorMessage(telegramNotifications?.reason),
       }));
     }
 
     const failed = results
       .map((result, index) => result.status === "rejected"
-        ? ["research_reports", "telegram_workflow"][index]
+        ? ["research_reports", "telegram_collection"][index]
         : null)
       .filter((name): name is string => name !== null);
     if (failed.length > 0) throw new Error(`scheduled collection failed: ${failed.join(", ")}`);
