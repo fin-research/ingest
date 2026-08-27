@@ -26,43 +26,59 @@ interface TelegramCollectorDependencies {
   fetcher?: Fetcher;
 }
 
-export async function collectCentralBankNotifications(
-  env: Env,
-  sentAt: string,
-): Promise<TelegramCollectionSummary> {
-  return await runCentralBankNotificationCollection(
-    {
-      apiBaseUrl: env.ARTICLE_API_BASE_URL,
-      repository: new D1TelegramDeliveryRepository(env.DB),
-      getNotifier: async () => {
-        let botToken: string;
-        let userId: string;
-        try {
-          [botToken, userId] = await Promise.all([
-            env.TELEGRAM_BOT_TOKEN.get(),
-            env.TELEGRAM_USER_ID.get(),
-          ]);
-        } catch {
-          throw new Error("Telegram credentials are unavailable from Secrets Store");
-        }
-        return new TelegramBotNotifier(botToken, userId);
-      },
-    },
-    sentAt,
-  );
+interface TelegramWorkflowDependencies {
+  fetchArticles: () => Promise<ArticleMetadata[]>;
+  findDeliveredIds: (ids: string[]) => Promise<Set<string>>;
+  send: (article: ArticleMetadata) => Promise<number>;
+  markDelivered: (article: ArticleMetadata, messageId: number) => Promise<void>;
+}
+
+export async function createTelegramNotifier(
+  env: Pick<Env, "TELEGRAM_BOT_TOKEN" | "TELEGRAM_USER_ID">,
+): Promise<TelegramNotifier> {
+  let botToken: string;
+  let userId: string;
+  try {
+    [botToken, userId] = await Promise.all([
+      env.TELEGRAM_BOT_TOKEN.get(),
+      env.TELEGRAM_USER_ID.get(),
+    ]);
+  } catch {
+    throw new Error("Telegram credentials are unavailable from Secrets Store");
+  }
+  return new TelegramBotNotifier(botToken, userId);
 }
 
 export async function runCentralBankNotificationCollection(
   dependencies: TelegramCollectorDependencies,
   sentAt: string,
 ): Promise<TelegramCollectionSummary> {
-  const articles = await fetchCentralBankPolicyNews(
-    dependencies.apiBaseUrl,
-    dependencies.fetcher,
+  let notifier: TelegramNotifier | undefined;
+  return await runTelegramNotificationWorkflow(
+    {
+      fetchArticles: async () => await fetchCentralBankPolicyNews(
+        dependencies.apiBaseUrl,
+        dependencies.fetcher,
+      ),
+      findDeliveredIds: async (ids) => await dependencies.repository.findDeliveredIds(ids),
+      send: async (article) => {
+        notifier ??= await dependencies.getNotifier();
+        return await notifier.send(article);
+      },
+      markDelivered: async (article, messageId) => {
+        await dependencies.repository.markDelivered(article, sentAt, messageId);
+      },
+    },
   );
+}
+
+export async function runTelegramNotificationWorkflow(
+  dependencies: TelegramWorkflowDependencies,
+): Promise<TelegramCollectionSummary> {
+  const articles = await dependencies.fetchArticles();
   if (articles.length === 0) return { matched: 0, existing: 0, sent: 0 };
 
-  const deliveredIds = await dependencies.repository.findDeliveredIds(
+  const deliveredIds = await dependencies.findDeliveredIds(
     articles.map((article) => article.id),
   );
   const pending = articles.filter((article) => !deliveredIds.has(article.id));
@@ -70,18 +86,17 @@ export async function runCentralBankNotificationCollection(
     return { matched: articles.length, existing: articles.length, sent: 0 };
   }
 
-  const notifier = await dependencies.getNotifier();
   let sent = 0;
   for (const article of pending) {
     let messageId: number;
     try {
-      messageId = await notifier.send(article);
+      messageId = await dependencies.send(article);
     } catch (error) {
       throw new Error(
         `Telegram notification failed for article ${article.id}: ${publicErrorMessage(error)}`,
       );
     }
-    await dependencies.repository.markDelivered(article, sentAt, messageId);
+    await dependencies.markDelivered(article, messageId);
     sent += 1;
   }
 

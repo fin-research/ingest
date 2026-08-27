@@ -90,6 +90,49 @@ describe("article workflow steps", () => {
   });
 });
 
+describe("Telegram workflow steps", () => {
+  it("keeps source fetch, Telegram send, and delivery recording independently retryable", async () => {
+    const instanceId = "workflow-step-telegram";
+    const article = {
+      id: "2026082600010688293",
+      title: "中国央行今日开展2395亿元7天逆回购操作",
+      publishedAt: "2026-08-26T09:20:47+08:00",
+    };
+    const instance = await introspectWorkflowInstance(env.TELEGRAM_WORKFLOW, instanceId);
+
+    try {
+      await instance.modify(async (modifier) => {
+        await modifier.mockStepResult(
+          { name: "fetch central bank policy news" },
+          [article],
+        );
+        await modifier.mockStepResult(
+          { name: "find delivered Telegram notifications" },
+          [],
+        );
+        await modifier.mockStepResult(
+          { name: `send Telegram notification ${article.id}` },
+          12096,
+        );
+        await modifier.mockStepResult(
+          { name: `record Telegram delivery ${article.id}` },
+          { articleId: article.id, messageId: 12096 },
+        );
+      });
+
+      await env.TELEGRAM_WORKFLOW.create({ id: instanceId, params: {} });
+
+      await expect(instance.waitForStatus("complete")).resolves.toBeUndefined();
+      await expect(
+        instance.waitForStepResult({ name: `send Telegram notification ${article.id}` }),
+      ).resolves.toBe(12096);
+      await expect(instance.getOutput()).resolves.toEqual({ matched: 1, existing: 0, sent: 1 });
+    } finally {
+      await instance.dispose();
+    }
+  });
+});
+
 function stream(value: string): ReadableStream<Uint8Array> {
   return new Blob([value]).stream();
 }

@@ -52,21 +52,26 @@ describe("research report helpers", () => {
 
   it("fetches the policy tag and strictly matches the China central bank title prefix", async () => {
     const requested: URL[] = [];
-    const matching = {
+    const matchingWithColon = {
       ...article,
       sentimentId: "policy-1",
       title: "中国央行：今日开展公开市场操作",
       tags: ["经济数据&政策", "货币政策"],
     };
+    const matchingWithoutColon = {
+      ...matchingWithColon,
+      sentimentId: "policy-2",
+      title: "中国央行今日开展2395亿元7天逆回购操作",
+    };
     const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
       requested.push(new URL(input.toString()));
       return Response.json({
         list: [
-          matching,
-          matching,
-          { ...matching, sentimentId: "policy-2", title: "中国央行: ASCII 冒号不匹配" },
-          { ...matching, sentimentId: "policy-3", title: "【快讯】中国央行：前面有文字" },
-          { ...matching, sentimentId: "policy-4", tags: ["货币政策"] },
+          matchingWithColon,
+          matchingWithColon,
+          matchingWithoutColon,
+          { ...matchingWithColon, sentimentId: "policy-3", title: "【快讯】中国央行：前面有文字" },
+          { ...matchingWithColon, sentimentId: "policy-4", tags: ["货币政策"] },
         ],
       });
     };
@@ -76,7 +81,7 @@ describe("research report helpers", () => {
       fetcher,
     );
 
-    expect(result.map((item) => item.id)).toEqual(["policy-1"]);
+    expect(result.map((item) => item.id)).toEqual(["policy-1", "policy-2"]);
     expect(requested[0]?.pathname).toBe("/data/news");
     expect(requested[0]?.searchParams.get("tag")).toBe("经济数据&政策");
     expect(requested[0]?.searchParams.get("pageSize")).toBe("100");

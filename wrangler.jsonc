@@ -31,6 +31,14 @@
       "binding": "ARTICLE_WORKFLOW",
       "name": "article",
       "class_name": "ArticleWorkflow"
+    },
+    {
+      "binding": "TELEGRAM_WORKFLOW",
+      "name": "telegram",
+      "class_name": "TelegramWorkflow",
+      "schedules": [
+        "*/5 0-9 * * MON-FRI"
+      ]
     }
   ],
   "r2_buckets": [

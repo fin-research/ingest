@@ -10,6 +10,7 @@ export default defineConfig({
         compatibilityFlags: ["nodejs_compat"],
         workflows: {
           ARTICLE_WORKFLOW: { name: "article", className: "ArticleWorkflow" },
+          TELEGRAM_WORKFLOW: { name: "telegram", className: "TelegramWorkflow" },
         },
       },
     }),
