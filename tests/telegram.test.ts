@@ -21,7 +21,7 @@ const secondPolicyNews = {
   ...policyNews,
   sentimentId: "2026082500010680000",
   newsId: "policy-news-2",
-  title: "中国央行今日开展另一项公开市场操作",
+  title: "中国央行：今日开展另一项公开市场操作",
 };
 
 class MemoryDeliveryRepository implements TelegramDeliveryRepository {

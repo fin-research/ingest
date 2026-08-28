@@ -26,7 +26,7 @@ D1 绑定为 `DB`，数据库名 `eastmoney`。最终 schema 以 `migrations/` �
 - `discovered_at`：Cron 首次发现并由 Workflow 入库的时间。
 - `workflow_instance_id`：首次成功入库该资讯的 Telegram Workflow；并发实例不能发送不属于自己的记录。
 - `sent_at`、`telegram_message_id`：初始为空；Telegram 成功响应后一起更新为投递时间和消息 ID。
-- 只有标题以 `中国央行` 开头且精确包含 `经济数据&政策` 标签的资讯才会写入；兼容标题有无全角冒号。
+- 只有标题以 `中国央行：` 开头且精确包含 `经济数据&政策` 标签的资讯才会写入；全角冒号属于匹配前缀，不能省略或替换为半角冒号。
 - Workflow 第一步先写待发送记录，第二步发送并更新成功字段。第二步重试时查询已有 message ID 并跳过已完成记录；Telegram 网络结果不确定时仍可能出现极少量重复，但不会把未发送资讯误记为成功。
 
 ## 写入规则

@@ -3,9 +3,9 @@
 ## 运行入口
 
 - `fetch` 只提供 `GET /health`，其他路径返回 404。
-- `scheduled` 由 Cron 触发研报增量采集，同时抓取并去重央行资讯。
+- `scheduled` 由 Cron 触发研报增量采集，同时抓取并去重匹配的政策资讯。
 - `ArticleWorkflow` 处理每篇文章的可重试、幂等长流程。
-- `TelegramWorkflow` 只在发现新增央行资讯时创建，一个实例处理本轮全部新增资讯。
+- `TelegramWorkflow` 只在发现标题以 `中国央行：` 开头的新增政策资讯时创建，一个实例处理本轮全部新增资讯。
 
 ## 增量采集
 
@@ -19,7 +19,7 @@ Cron → GET {ARTICLE_API_BASE_URL}/news?tag=市场解读&pageSize=100
 
 Cron → GET {ARTICLE_API_BASE_URL}/news?tag=经济数据%26政策&pageSize=100
      → runtime validation + exact tag filter
-     → title prefix filter: 中国央行
+     → title prefix filter: 中国央行：（全角冒号必需）
      → D1 lookup existing IDs
      → no new article: stop without creating a Workflow
      → new articles: create one TelegramWorkflow telegram-{scheduledTime}
@@ -29,7 +29,7 @@ Cron → GET {ARTICLE_API_BASE_URL}/news?tag=经济数据%26政策&pageSize=100
 
 同一文章 ID 在正常轮询中只进入一个 Telegram Workflow。文章 Workflow 实例 ID 使用稳定的 ASCII `article-{articleId}`；Telegram Workflow 使用本轮 Cron 时间戳 `telegram-{scheduledTime}`，不能直接使用中文标题。
 
-Cron 会并行等待研报采集与 Telegram 抓取去重，因此任一分支失败时仍会完成另一分支。新增央行资讯由 Workflow 第一步批量写入 D1，第二步才读取 Secret 并调用 Telegram；发送成功后在同一步更新 `sent_at` 与 `telegram_message_id`。第二步重试时先跳过已有 message ID 的记录，避免重复发送已确认成功的资讯。政策资讯不进入 `ArticleWorkflow`、R2 或 AI Search。
+Cron 会并行等待研报采集与 Telegram 抓取去重，因此任一分支失败时仍会完成另一分支。新增匹配资讯由 Workflow 第一步批量写入 D1，第二步才读取 Secret 并调用 Telegram；发送成功后在同一步更新 `sent_at` 与 `telegram_message_id`。第二步重试时先跳过已有 message ID 的记录，避免重复发送已确认成功的资讯。政策资讯不进入 `ArticleWorkflow`、R2 或 AI Search。
 
 `ARTICLE_API_BASE_URL` 固定指向生产 `/data` 前缀；列表和详情都必须从该统一数据入口读取。
 

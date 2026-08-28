@@ -95,7 +95,7 @@ describe("Telegram workflow steps", () => {
     const instanceId = "workflow-step-telegram";
     const article = {
       id: "2026082600010688293",
-      title: "中国央行今日开展2395亿元7天逆回购操作",
+      title: "中国央行：今日开展2395亿元7天逆回购操作",
       publishedAt: "2026-08-26T09:20:47+08:00",
     };
     const instance = await introspectWorkflowInstance(env.TELEGRAM_WORKFLOW, instanceId);
