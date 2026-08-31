@@ -33,11 +33,11 @@ describe("research report helpers", () => {
     const requested: URL[] = [];
     const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
       requested.push(new URL(input.toString()));
-      return Response.json([
+      return Response.json({ list: [
           article,
           article,
           { ...article, sentimentId: "2", newsId: "N2", tags: ["其他"] },
-      ]);
+      ] });
     };
 
     const result = await fetchResearchReportList("https://eastmoney.hasbai.xyz/data", fetcher);

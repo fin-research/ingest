@@ -22,11 +22,15 @@ export interface ArticleDetail {
   link?: string;
 }
 
-type NewsListResponse = ArticleMetadata[];
-
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 const taggedNewsSchema = z.object({ tags: z.array(z.string()) });
+const newsListResponseSchema = z
+  .union([
+    z.array(z.unknown()),
+    z.object({ list: z.array(z.unknown()) }),
+  ])
+  .transform((value) => Array.isArray(value) ? value : value.list);
 
 function jsonObject(value: unknown, label: string): Record<string, unknown> {
   const parsed = jsonObjectSchema.safeParse(value);
@@ -96,9 +100,12 @@ async function fetchTaggedNewsList(
     signal: AbortSignal.timeout(30_000),
   });
   const payload = await readJsonResponse(response, "news list");
-  if (!Array.isArray(payload)) throw new Error("news list response must be an array");
+  const parsed = newsListResponseSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new Error("news list response must be an array or a legacy list envelope");
+  }
 
-  const articles = payload
+  const articles = parsed.data
     .filter((value) => hasExactTag(value, tag))
     .map(validateArticleMetadata);
   return deduplicateArticles(articles);
