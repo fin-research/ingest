@@ -33,13 +33,11 @@ describe("research report helpers", () => {
     const requested: URL[] = [];
     const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
       requested.push(new URL(input.toString()));
-      return Response.json({
-        list: [
+      return Response.json([
           article,
           article,
           { ...article, sentimentId: "2", newsId: "N2", tags: ["其他"] },
-        ],
-      });
+      ]);
     };
 
     const result = await fetchResearchReportList("https://eastmoney.hasbai.xyz/data", fetcher);
@@ -48,6 +46,9 @@ describe("research report helpers", () => {
     expect(requested[0]?.pathname).toBe("/data/news");
     expect(requested[0]?.searchParams.get("tag")).toBe("市场解读");
     expect(requested[0]?.searchParams.get("pageSize")).toBe("100");
+    expect(requested[0]?.searchParams.get("fields")).toBe(
+      "sentimentId,newsId,title,time,tags",
+    );
   });
 
   it("fetches the policy tag and strictly matches the full-width China central bank title prefix", async () => {
@@ -65,8 +66,7 @@ describe("research report helpers", () => {
     };
     const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
       requested.push(new URL(input.toString()));
-      return Response.json({
-        list: [
+      return Response.json([
           matchingWithColon,
           matchingWithColon,
           matchingWithoutColon,
@@ -74,8 +74,7 @@ describe("research report helpers", () => {
           { ...matchingWithColon, sentimentId: "policy-4", title: "中国银行：今日开展公开市场操作" },
           { ...matchingWithColon, sentimentId: "policy-5", title: "【快讯】中国央行：前面有文字" },
           { ...matchingWithColon, sentimentId: "policy-6", tags: ["货币政策"] },
-        ],
-      });
+      ]);
     };
 
     const result = await fetchCentralBankPolicyNews(

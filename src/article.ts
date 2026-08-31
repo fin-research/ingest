@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 const MAX_API_RESPONSE_BYTES = 5 * 1024 * 1024;
 const MAX_MARKDOWN_BYTES = 4 * 1024 * 1024;
 const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
@@ -20,17 +22,20 @@ export interface ArticleDetail {
   link?: string;
 }
 
-interface NewsListResponse {
-  list: ArticleMetadata[];
-}
+type NewsListResponse = ArticleMetadata[];
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+const jsonObjectSchema = z.record(z.string(), z.unknown());
+const taggedNewsSchema = z.object({ tags: z.array(z.string()) });
+
+function jsonObject(value: unknown, label: string): Record<string, unknown> {
+  const parsed = jsonObjectSchema.safeParse(value);
+  if (!parsed.success) throw new Error(`${label} must be an object`);
+  return parsed.data;
+}
 
 export function validateArticleMetadata(value: unknown): ArticleMetadata {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("news item must be an object");
-  }
-  const row = value as Record<string, unknown>;
+  const row = jsonObject(value, "news item");
   const id = optionalString(row.sentimentId ?? row.id, "sentimentId", 200);
   const newsId = optionalString(row.newsId, "newsId", 200);
   if (!id) throw new Error("news item must contain sentimentId");
@@ -53,10 +58,7 @@ export function validateArticleMetadata(value: unknown): ArticleMetadata {
 }
 
 export function validateArticleDetail(value: unknown): ArticleDetail {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("news detail must be an object");
-  }
-  const row = value as Record<string, unknown>;
+  const row = jsonObject(value, "news detail");
   const link = optionalHttpUrl(row.link, "link", 4_096);
   return {
     content: requireString(row.content, "content", MAX_MARKDOWN_BYTES),
@@ -87,19 +89,16 @@ async function fetchTaggedNewsList(
   const url = apiUrl(apiBaseUrl, "news");
   url.searchParams.set("tag", tag);
   url.searchParams.set("pageSize", String(NEWS_PAGE_SIZE));
+  url.searchParams.set("fields", "sentimentId,newsId,title,time,tags");
 
   const response = await fetcher(url, {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(30_000),
   });
   const payload = await readJsonResponse(response, "news list");
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("news list response must be an object");
-  }
-  const rawList = (payload as Record<string, unknown>).list;
-  if (!Array.isArray(rawList)) throw new Error("news list response is missing list");
+  if (!Array.isArray(payload)) throw new Error("news list response must be an array");
 
-  const articles = rawList
+  const articles = payload
     .filter((value) => hasExactTag(value, tag))
     .map(validateArticleMetadata);
   return deduplicateArticles(articles);
@@ -145,9 +144,8 @@ export function assertMarkdownFits(markdown: string): void {
 }
 
 function hasExactTag(value: unknown, tag: string): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const tags = (value as Record<string, unknown>).tags;
-  return Array.isArray(tags) && tags.includes(tag);
+  const parsed = taggedNewsSchema.safeParse(value);
+  return parsed.success && parsed.data.tags.includes(tag);
 }
 
 function deduplicateArticles(articles: ArticleMetadata[]): ArticleMetadata[] {
@@ -162,7 +160,8 @@ async function readJsonResponse(response: Response, label: string): Promise<unkn
   }
   const text = await readTextBounded(response, MAX_API_RESPONSE_BYTES, label);
   try {
-    return JSON.parse(text) as unknown;
+    const payload: unknown = JSON.parse(text);
+    return payload;
   } catch {
     throw new Error(`${label} response is not valid JSON`);
   }

@@ -24,6 +24,7 @@
 - Cron 固定为 `*/5 0-9 * * MON-FRI`（UTC），即北京时间工作日 `[08:00, 18:00)` 每 5 分钟。
 - 列表固定请求 `tag=市场解读&pageSize=100`，并再次执行精确标签过滤。
 - `ARTICLE_API_BASE_URL` 固定为 `https://eastmoney.hasbai.xyz/data`，统一读取 `/data/news` 与详情路由。
+- `/data/news` 是顶层 JSON array；请求必须用 `fields` 只取 `sentimentId,newsId,title,time,tags`，不得恢复 `list` 或 `data` envelope 假设。详情仍为顶层 object。
 - 每轮 D1 批量查重；重复轮询不得更新已有记录。新增项一次 `batch()` 写入，Workflow 批量启动失败时删除本轮新增去重行以便重试。
 - Workflow 步骤必须幂等，所有 Promise 必须 await。公众号直连失败时回退 DM 正文。
 - 正文不写 D1。D1 只保存文章元数据、结构化特征和关键词；R2 保存未经 AI Search 标点兼容修复的 Markdown。

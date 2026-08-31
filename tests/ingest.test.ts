@@ -40,8 +40,7 @@ class MemoryWorkflow implements ArticleWorkflowLauncher {
   }
 }
 
-const apiPayload = {
-  list: [
+const apiPayload = [
     {
       sentimentId: "S1",
       newsId: "N1",
@@ -56,8 +55,7 @@ const apiPayload = {
       time: "2026-08-11T09:05:00+08:00",
       tags: ["市场解读"],
     },
-  ],
-};
+];
 
 const fetcher = async (): Promise<Response> => Response.json(apiPayload);
 

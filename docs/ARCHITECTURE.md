@@ -10,14 +10,14 @@
 ## 增量采集
 
 ```text
-Cron → GET {ARTICLE_API_BASE_URL}/news?tag=市场解读&pageSize=100
+Cron → GET {ARTICLE_API_BASE_URL}/news?tag=市场解读&pageSize=100&fields=sentimentId,newsId,title,time,tags
      → runtime validation + exact tag filter
      → D1 batch lookup existing IDs
      → D1 batch insert new metadata
      → Workflow createBatch
         └─ start failed → delete this round's new dedupe rows
 
-Cron → GET {ARTICLE_API_BASE_URL}/news?tag=经济数据%26政策&pageSize=100
+Cron → GET {ARTICLE_API_BASE_URL}/news?tag=经济数据%26政策&pageSize=100&fields=sentimentId,newsId,title,time,tags
      → runtime validation + exact tag filter
      → title prefix filter: 中国央行：（全角冒号必需）
      → D1 lookup existing IDs

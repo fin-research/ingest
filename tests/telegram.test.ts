@@ -84,9 +84,10 @@ describe("central bank Telegram notifications", () => {
       apiBaseUrl: "https://eastmoney.hasbai.xyz/data",
       repository,
       workflow,
-      fetcher: async (): Promise<Response> => Response.json({
-        list: [policyNews, secondPolicyNews],
-      }),
+      fetcher: async (): Promise<Response> => Response.json([
+        policyNews,
+        secondPolicyNews,
+      ]),
     };
 
     const first = await runCentralBankNotificationCollection(
@@ -120,7 +121,7 @@ describe("central bank Telegram notifications", () => {
         {
           apiBaseUrl: "https://eastmoney.hasbai.xyz/data",
           repository,
-          fetcher: async (): Promise<Response> => Response.json({ list: [policyNews] }),
+          fetcher: async (): Promise<Response> => Response.json([policyNews]),
           workflow: {
             async start(): Promise<string> {
               throw new Error("workflow unavailable");
