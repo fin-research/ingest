@@ -6,6 +6,7 @@
 - `scheduled` 由 Cron 触发研报增量采集，同时抓取并去重匹配的政策资讯。
 - `ArticleWorkflow` 处理每篇文章的可重试、幂等长流程。
 - `TelegramWorkflow` 只在发现标题以 `中国央行：` 开头的新增政策资讯时创建，一个实例处理本轮全部新增资讯。
+- `PolicyWorkflow` 处理一批待聚合 `中央政策` 资讯，完成正文补齐、AI 归并、D1 入库与既有研报关联。
 
 ## 增量采集
 
@@ -25,6 +26,15 @@ Cron → GET {ARTICLE_API_BASE_URL}/news?tag=经济数据%26政策&pageSize=100&
      → new articles: create one TelegramWorkflow telegram-{scheduledTime}
         1. store Telegram notifications in D1 as pending
         2. send pending notifications and record message IDs
+
+Cron → GET {ARTICLE_API_BASE_URL}/news?tag=中央政策&pageSize=100&fields=sentimentId,newsId,title,time,tags
+     → runtime validation + exact tag filter
+     → D1 insert pending policy_news + claim unowned or stale rows
+     → create one PolicyWorkflow policy-{scheduledTime}
+        1. bounded-concurrency DM detail fetch
+        2. AI merge the same formal policy and match recent policy_event rows
+        3. D1 batch write policy_event / policy_news
+        4. AI match existing article rows from policy date -1 to +14 days
 ```
 
 同一文章 ID 在正常轮询中只进入一个 Telegram Workflow。文章 Workflow 实例 ID 使用稳定的 ASCII `article-{articleId}`；Telegram Workflow 使用本轮 Cron 时间戳 `telegram-{scheduledTime}`，不能直接使用中文标题。
@@ -40,6 +50,7 @@ DM detail
  → optional WeChat download and cleanup
  → AI feature extraction
  → D1 article + keyword
+ → AI match against policies from the previous 14 days
  → R2 Markdown
  → read same R2 object
  → AI Search upload and final status polling
@@ -49,6 +60,7 @@ DM detail
 - 公众号下载是独立可重试步骤；失败回退 DM 已清洗正文。
 - AI 特征抽取通过统一 adapter 和 Zod Schema，先直连 AI Gateway 的 `custom-opencode/responses`，遇到网络、超时、限流、上游服务或输出校验错误时再调用 `custom-codex/responses`；两次均失败才交给 Workflow 步骤重试，残缺结果不保存。
 - 特征与关键词在一次 D1 `batch()` 中覆盖。
+- 自动研报关系只使用 article 的标题、摘要、机构和结构化关键词；仅保存直接关系、置信度与依据。人工 `linked` / `excluded` 决定不被后续 AI upsert 覆盖。
 - R2 与 AI Search 按同 key 幂等；AI Search 必须等待 `completed`，`running` 不是成功。
 - `file_content_empty` 在既定重试后仍失败时成为不可重试错误，保留可诊断状态。
 
@@ -57,4 +69,5 @@ DM detail
 - `article.ts` 定义外部契约和 key；其他模块不要自行拼路径或解析未经校验的响应。
 - `ingest.ts` 只负责编排去重与 Workflow 启动。
 - `index.ts` 组合各 adapter，不复制存储或 HTTP 实现。
+- `policy.ts` 维护待处理政策资讯的认领恢复、聚合 Schema、双向研报关联和 D1 写入；页面不参与政策归并。
 - 生产资源通过 Env bindings 注入；测试使用可替换 adapter 和 Workers runtime。

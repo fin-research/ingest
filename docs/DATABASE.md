@@ -38,6 +38,13 @@ D1 绑定为 `DB`，数据库名 `eastmoney`。最终 schema 以 `migrations/` �
 - 文章 link 只有为空或发生变化时更新。
 - Telegram 抓取在 Workflow 外按 `telegram_delivery.article_id` 去重；无新增时不创建 Workflow。新增批次只创建一个 Telegram Workflow，并依次执行“入库”“发送”两个可重试步骤。
 
+## 政策跟踪
+
+- `policy_event`：一条已归并政策，保存规范标题、摘要、类别、发布部门、政策日期和首末资讯时间。
+- `policy_news`：`中央政策` 标签资讯队列及政策证据；抓取后先以 `pending` 入库并由 Workflow 认领，聚合完成后变为 `grouped` 且必须关联一个 `policy_event`。超时认领可由后续 Cron 重新接管。
+- `policy_article`：政策与 article 的多对多关系。`association_method=ai` 保存模型置信度和依据；`manual` 表示人工关联或排除，自动 upsert 不覆盖。
+- 政策资讯正文保存于 `policy_news`，用于卡片证据和后续点评；研报正文仍不写 D1。
+
 ## Migration
 
 - 所有 D1 结构变化新增 migration，不改写历史文件。

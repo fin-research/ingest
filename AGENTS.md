@@ -2,15 +2,16 @@
 
 ## Project Overview
 
-纯 TypeScript Cloudflare Worker。Cron 在工作日北京时间 08:00–18:00 每 5 分钟读取 `市场解读` 文章，只为新增记录创建 `ArticleWorkflow`，完成正文获取、AI 特征抽取、D1 元数据、R2 归档与 AI Search 索引。
+纯 TypeScript Cloudflare Worker。Cron 在工作日北京时间 08:00–18:00 每 5 分钟读取 `市场解读` 文章和 `中央政策` 资讯；新增研报进入 `ArticleWorkflow` 完成正文获取、AI 特征抽取、D1 元数据、R2 归档、AI Search 索引和政策关联，新增政策资讯进入 `PolicyWorkflow` 自动归并为政策卡片。
 
 运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、Workflow `article`、R2 `article`、AI Search `finance`。
 
 ## Repository Structure
 
-- `src/index.ts`：Worker fetch/scheduled 入口与 `ArticleWorkflow`。
+- `src/index.ts`：Worker fetch/scheduled 入口与 Article、Telegram、Policy 三类 Workflow。
 - `src/article.ts`：外部文章 API 契约、校验、Markdown 与稳定 key。
 - `src/ingest.ts`：批量查重、仅新增写入、Workflow 启动和失败回滚。
+- `src/policy.ts`：中央政策队列认领、AI 聚合、双向研报关联和 D1 写入。
 - `src/wechat.ts`：公众号直连下载、Markdown 转换和风险披露清洗。
 - `src/feature-extraction.ts`：结构化特征 Schema、Prompt 和 D1 写入。
 - `src/ai-gateway.ts`、`src/ai-search.ts`：AI Gateway 与 AI Search 适配器。
@@ -23,10 +24,12 @@
 - 修改前搜索现有 adapter、校验器和测试；不要绕过 `article.ts`、`ai-gateway.ts` 或既有 Workflow 步骤直接实现重复逻辑。
 - Cron 固定为 `*/5 0-9 * * MON-FRI`（UTC），即北京时间工作日 `[08:00, 18:00)` 每 5 分钟。
 - 列表固定请求 `tag=市场解读&pageSize=100`，并再次执行精确标签过滤。
+- 政策列表固定请求 `tag=中央政策&pageSize=100`，并再次执行精确标签过滤；政策归并必须由 `PolicyWorkflow` 完成。
 - `ARTICLE_API_BASE_URL` 固定为 `https://eastmoney.hasbai.xyz/data`，统一读取 `/data/news` 与详情路由。
 - `/data/news` 是顶层 JSON array；请求必须用 `fields` 只取 `sentimentId,newsId,title,time,tags`，不得恢复 `list` 或 `data` envelope 假设。详情仍为顶层 object。
 - 每轮 D1 批量查重；重复轮询不得更新已有记录。新增项一次 `batch()` 写入，Workflow 批量启动失败时删除本轮新增去重行以便重试。
 - Workflow 步骤必须幂等，所有 Promise 必须 await。公众号直连失败时回退 DM 正文。
+- 政策与研报关联使用双向增量触发：政策落库时匹配已有研报，研报特征落库时匹配近期政策；人工关联或排除优先于 AI，后续自动任务不得覆盖。
 - 正文不写 D1。D1 只保存文章元数据、结构化特征和关键词；R2 保存未经 AI Search 标点兼容修复的 Markdown。
 - R2 与 AI Search key 固定为 `yyyy-mm-dd/标题.md`。中文标点补空格只能在写 AI Search 前应用。
 - 生成式 AI 只通过 `src/ai-gateway.ts` 调用自定义 Provider 的原生 Responses API；固定优先 `custom-opencode`，可重试失败时回退 `custom-codex`，`dynamic/rag` 只保留在项目组 `AI.md` 作为历史兼容路线。Zod Schema 是结构化输出唯一来源，应用端必须校验，输入和有效输出不得截断。

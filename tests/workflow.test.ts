@@ -59,6 +59,10 @@ describe("article workflow steps", () => {
         );
         await modifier.mockStepResult({ name: "store article features in D1" }, { stored: true });
         await modifier.mockStepResult(
+          { name: "associate article with recent policies" },
+          { evaluatedPolicies: 0, evaluatedArticles: 1, matches: 0 },
+        );
+        await modifier.mockStepResult(
           { name: "store article in R2" },
           { key: "2026-08-12/测试文章.md", etag: "etag-1", size: 32 },
         );
@@ -84,6 +88,70 @@ describe("article workflow steps", () => {
       await expect(
         instance.waitForStepResult({ name: "extract article features with Responses API" }),
       ).resolves.toMatchObject({ importance: 60 });
+    } finally {
+      await instance.dispose();
+    }
+  });
+});
+
+describe("Policy aggregation workflow steps", () => {
+  it("downloads, aggregates, stores, and then associates research reports", async () => {
+    const instanceId = "policy-workflow-step";
+    const evidence = [{
+      id: "policy-news-1",
+      title: "房地产信贷新政",
+      publishedAt: "2026-09-01T19:00:00+08:00",
+      discoveredAt: "2026-09-01T11:15:00.000Z",
+      workflowInstanceId: instanceId,
+      content: "政策正文",
+    }];
+    const instance = await introspectWorkflowInstance(env.POLICY_WORKFLOW, instanceId);
+
+    try {
+      await instance.modify(async (modifier) => {
+        await modifier.mockStepResult(
+          { name: "download central policy news" },
+          stream(JSON.stringify(evidence)),
+        );
+        await modifier.mockStepResult(
+          { name: "aggregate central policy news with Responses API" },
+          {
+            groups: [{
+              existingPolicyId: null,
+              title: "房地产信贷管理新政",
+              summary: "央行与金融监管总局改革完善房地产信贷管理制度。",
+              category: "real_estate",
+              departments: ["中国人民银行", "国家金融监督管理总局"],
+              policyDate: "2026-09-01",
+              newsIds: ["policy-news-1"],
+            }],
+          },
+        );
+        await modifier.mockStepResult(
+          { name: "store policy aggregation in D1" },
+          {
+            news: 1,
+            policies: 1,
+            newPolicies: 1,
+            updatedPolicies: 0,
+            policyIds: ["policy-id-1"],
+          },
+        );
+        await modifier.mockStepResult(
+          { name: "associate policies with existing articles" },
+          { evaluatedPolicies: 1, evaluatedArticles: 2, matches: 1 },
+        );
+      });
+
+      await env.POLICY_WORKFLOW.create({
+        id: instanceId,
+        params: { workflowInstanceId: instanceId },
+      });
+
+      await expect(instance.waitForStatus("complete")).resolves.toBeUndefined();
+      await expect(
+        instance.waitForStepResult({ name: "associate policies with existing articles" }),
+      ).resolves.toMatchObject({ matches: 1 });
     } finally {
       await instance.dispose();
     }

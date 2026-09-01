@@ -21,6 +21,16 @@ import {
 } from "./feature-extraction";
 import { collectResearchReports, updateArticleLink } from "./ingest";
 import {
+  associateArticleWithPolicies,
+  associatePoliciesWithArticles,
+  collectPolicies,
+  D1PolicyNewsRepository,
+  generatePolicyAggregation,
+  loadPolicyEvidence,
+  type PolicyWorkflowParams,
+  type PolicyWorkflowSummary,
+} from "./policy";
+import {
   collectCentralBankNotifications,
   createTelegramNotifier,
   D1TelegramDeliveryRepository,
@@ -105,6 +115,12 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
         await saveArticleFeatures(this.env.DB, article.id, extracted, new Date().toISOString());
         return { articleId: article.id, keywordCount: extracted.keywords.length };
       },
+    );
+
+    await step.do(
+      "associate article with recent policies",
+      { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" }, timeout: "5 minutes" },
+      async () => await associateArticleWithPolicies(this.env, article.id),
     );
 
     const archived = await step.do(
@@ -237,6 +253,72 @@ export class TelegramWorkflow extends WorkflowEntrypoint<Env, TelegramWorkflowPa
   }
 }
 
+export class PolicyWorkflow extends WorkflowEntrypoint<Env, PolicyWorkflowParams> {
+  override async run(
+    event: Readonly<WorkflowEvent<PolicyWorkflowParams>>,
+    step: WorkflowStep,
+  ): Promise<PolicyWorkflowSummary> {
+    if (event.payload.workflowInstanceId !== event.instanceId) {
+      throw new Error("Policy workflow payload does not match its instance ID");
+    }
+    const repository = new D1PolicyNewsRepository(this.env.DB);
+    const evidenceStream = await step.do(
+      "download central policy news",
+      { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "5 minutes" },
+      async () => {
+        const claimed = await repository.loadClaimed(event.instanceId);
+        if (claimed.length === 0) throw new Error("Policy workflow has no claimed news");
+        const evidence = await loadPolicyEvidence(this.env.ARTICLE_API_BASE_URL, claimed);
+        return new Blob([JSON.stringify(evidence)]).stream();
+      },
+    );
+    const evidence = JSON.parse(await new Response(evidenceStream).text());
+    if (!Array.isArray(evidence) || evidence.length === 0) {
+      throw new Error("Policy workflow evidence is invalid");
+    }
+
+    const aggregation = await step.do(
+      "aggregate central policy news with Responses API",
+      { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" }, timeout: "5 minutes" },
+      async () => {
+        const existing = await repository.loadRecentPolicies(evidence[0].publishedAt);
+        return await generatePolicyAggregation(
+          {
+            accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+            gatewayId: this.env.AI_GATEWAY_ID,
+            token: this.env.CF_AIG_TOKEN,
+          },
+          evidence,
+          existing,
+        );
+      },
+    );
+
+    const summary = await step.do(
+      "store policy aggregation in D1",
+      { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
+      async () => await repository.saveAggregation(
+        event.instanceId,
+        evidence,
+        aggregation,
+        new Date().toISOString(),
+      ),
+    );
+    const associations = await step.do(
+      "associate policies with existing articles",
+      { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" }, timeout: "5 minutes" },
+      async () => await associatePoliciesWithArticles(this.env, summary.policyIds),
+    );
+    console.log(JSON.stringify({
+      event: "central_policy_aggregation",
+      workflowInstanceId: event.instanceId,
+      ...summary,
+      articleAssociations: associations,
+    }));
+    return summary;
+  }
+}
+
 export default {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -246,6 +328,7 @@ export default {
         worker: "ingest",
         workflow: "article",
         telegramWorkflow: "telegram",
+        policyWorkflow: "policy-aggregation",
         source: "市场解读",
       });
     }
@@ -257,8 +340,9 @@ export default {
     const results = await Promise.allSettled([
       collectResearchReports(env, scheduledAt),
       collectCentralBankNotifications(env, scheduledAt),
+      collectPolicies(env, scheduledAt),
     ]);
-    const [researchReports, telegramNotifications] = results;
+    const [researchReports, telegramNotifications, policies] = results;
 
     if (researchReports?.status === "fulfilled") {
       console.log(JSON.stringify({ event: "research_report_ingest", ...researchReports.value }));
@@ -266,6 +350,15 @@ export default {
       console.error(JSON.stringify({
         event: "research_report_ingest_failed",
         error: errorMessage(researchReports?.reason),
+      }));
+    }
+
+    if (policies?.status === "fulfilled") {
+      console.log(JSON.stringify({ event: "central_policy_collection", ...policies.value }));
+    } else {
+      console.error(JSON.stringify({
+        event: "central_policy_collection_failed",
+        error: errorMessage(policies?.reason),
       }));
     }
 
@@ -283,7 +376,7 @@ export default {
 
     const failed = results
       .map((result, index) => result.status === "rejected"
-        ? ["research_reports", "telegram_collection"][index]
+        ? ["research_reports", "telegram_collection", "policy_collection"][index]
         : null)
       .filter((name): name is string => name !== null);
     if (failed.length > 0) throw new Error(`scheduled collection failed: ${failed.join(", ")}`);

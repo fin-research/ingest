@@ -4,6 +4,7 @@ import {
   addChinesePunctuationSpaces,
   articleObjectKey,
   buildArticleMarkdown,
+  fetchCentralPolicyNews,
   fetchCentralBankPolicyNews,
   fetchResearchReportDetail,
   fetchResearchReportList,
@@ -86,6 +87,28 @@ describe("research report helpers", () => {
     expect(requested[0]?.pathname).toBe("/data/news");
     expect(requested[0]?.searchParams.get("tag")).toBe("经济数据&政策");
     expect(requested[0]?.searchParams.get("pageSize")).toBe("100");
+  });
+
+  it("fetches all exact central policy news for automatic aggregation", async () => {
+    const requested: URL[] = [];
+    const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
+      requested.push(new URL(input.toString()));
+      return Response.json([
+        { ...article, sentimentId: "central-1", title: "房地产信贷新政", tags: ["中央政策"] },
+        { ...article, sentimentId: "other-1", title: "地方政策", tags: ["地方政策"] },
+      ]);
+    };
+
+    const result = await fetchCentralPolicyNews(
+      "https://eastmoney.hasbai.xyz/data",
+      fetcher,
+    );
+
+    expect(result.map((item) => item.id)).toEqual(["central-1"]);
+    expect(requested[0]?.searchParams.get("tag")).toBe("中央政策");
+    expect(requested[0]?.searchParams.get("fields")).toBe(
+      "sentimentId,newsId,title,time,tags",
+    );
   });
 
   it("fetches report details by sentimentId", async () => {

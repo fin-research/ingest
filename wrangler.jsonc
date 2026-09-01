@@ -36,6 +36,11 @@
       "binding": "TELEGRAM_WORKFLOW",
       "name": "telegram",
       "class_name": "TelegramWorkflow"
+    },
+    {
+      "binding": "POLICY_WORKFLOW",
+      "name": "policy-aggregation",
+      "class_name": "PolicyWorkflow"
     }
   ],
   "r2_buckets": [

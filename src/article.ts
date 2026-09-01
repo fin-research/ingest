@@ -6,6 +6,7 @@ const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
 
 export const MARKET_COMMENTARY_TAG = "市场解读";
 export const ECONOMIC_DATA_POLICY_TAG = "经济数据&政策";
+export const CENTRAL_POLICY_TAG = "中央政策";
 export const CHINA_CENTRAL_BANK_TITLE_PREFIX = "中国央行：";
 export const NEWS_PAGE_SIZE = 100;
 
@@ -83,6 +84,13 @@ export async function fetchCentralBankPolicyNews(
 ): Promise<ArticleMetadata[]> {
   const articles = await fetchTaggedNewsList(apiBaseUrl, ECONOMIC_DATA_POLICY_TAG, fetcher);
   return articles.filter((article) => article.title.startsWith(CHINA_CENTRAL_BANK_TITLE_PREFIX));
+}
+
+export async function fetchCentralPolicyNews(
+  apiBaseUrl: string,
+  fetcher: Fetcher = fetch,
+): Promise<ArticleMetadata[]> {
+  return await fetchTaggedNewsList(apiBaseUrl, CENTRAL_POLICY_TAG, fetcher);
 }
 
 async function fetchTaggedNewsList(
@@ -271,4 +279,4 @@ function optionalHttpUrl(value: unknown, name: string, maxLength: number): strin
   return normalized;
 }
 
-export type { Fetcher, NewsListResponse };
+export type { Fetcher };
