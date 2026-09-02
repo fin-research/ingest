@@ -19,9 +19,9 @@
 
 - 所有生成式调用经过 `src/ai-gateway.ts`；业务模块不得自行拼 AI Gateway HTTP 请求。Adapter 只允许调用固定的 `custom-opencode/responses` 与 `custom-codex/responses` provider-specific URL，避免进入 Universal 适配层。
 - Zod Schema 是结构化输出唯一来源；Prompt 不重复手写返回结构。
-- Responses 请求不显式传递 `store`，统一使用 `reasoning.summary="auto"` 请求可读推理摘要；这不开放原始推理过程。稳定抽取规则放在 `instructions`，单篇标题和正文只放在末尾 `input`，并使用版本化 `prompt_cache_key` 复用上游 Prompt Cache。
+- Responses 请求不显式传递 `store`，统一设置 `reasoning.context="current_turn"`，并保留 `reasoning.summary="auto"` 请求可读推理摘要；不得设置 `include: ["reasoning.encrypted_content"]`。这不开放原始推理过程。稳定抽取规则放在 `instructions`，单篇标题和正文只放在末尾 `input`，并使用版本化 `prompt_cache_key` 复用上游 Prompt Cache。
 - 输入正文不截断，不设置 completion token 上限；响应达到读取上限或 Schema 不完整时必须失败并重试。
-- 日志可记录文章 ID、Prompt 版本、模型、Provider 尝试顺序、任务类型、effort、reasoning summary 模式、返回摘要条数与字符数、Prompt Cache token 计数、加密推理存在性、输出长度、HTTP 状态和 Gateway log ID，不记录 token、推理摘要正文、完整正文或完整 Provider 响应。
+- 日志可记录文章 ID、Prompt 版本、模型、Provider 尝试顺序、任务类型、effort、reasoning summary/context 模式、返回摘要条数与字符数、Prompt Cache token 计数、加密推理存在性、输出长度、HTTP 状态和 Gateway log ID，不记录 token、推理摘要正文、完整正文或完整 Provider 响应。
 
 ## Cloudflare 资源
 

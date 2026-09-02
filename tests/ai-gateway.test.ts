@@ -96,7 +96,11 @@ describe("AI Gateway provider-specific Responses", () => {
       model: "gpt-5.6-luna",
       prompt_cache_key: "article-features:v5",
       instructions: "system",
-      reasoning: { effort: "low", summary: "auto" },
+      reasoning: {
+        effort: "low",
+        summary: "auto",
+        context: "current_turn",
+      },
       text: {
         format: {
           type: "json_schema",
@@ -112,11 +116,15 @@ describe("AI Gateway provider-specific Responses", () => {
       },
       input: [{ role: "user", content: "test" }],
     });
+    expect(JSON.parse(String(calls[0]?.init?.body))).not.toHaveProperty("include");
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('"provider":"custom-opencode"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('"requested_reasoning_summary":"auto"'),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"requested_reasoning_context":"current_turn"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('"reasoning_summary_count":1'),

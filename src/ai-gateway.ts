@@ -279,7 +279,11 @@ async function runProvider<OUTPUT>(
         model: AI_GATEWAY_MODEL,
         prompt_cache_key: promptCacheKey,
         ...(prompt.instructions ? { instructions: prompt.instructions } : {}),
-        reasoning: { effort: reasoningEffort, summary: "auto" },
+        reasoning: {
+          effort: reasoningEffort,
+          summary: "auto",
+          context: "current_turn",
+        },
         text: {
           format: {
             type: "json_schema",
@@ -378,6 +382,7 @@ async function runProvider<OUTPUT>(
       task_type: options.taskType,
       reasoning_effort: reasoningEffort,
       requested_reasoning_summary: "auto",
+      requested_reasoning_context: "current_turn",
       reasoning_summary_count: reasoningSummary.count,
       reasoning_summary_text_length: reasoningSummary.textLength,
       prompt_cache_key: envelope.data.prompt_cache_key ?? promptCacheKey,
