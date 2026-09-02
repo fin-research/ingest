@@ -60,7 +60,7 @@ DM detail
 - 公众号下载是独立可重试步骤；失败回退 DM 已清洗正文。
 - AI 特征抽取通过统一 adapter 和 Zod Schema，先直连 AI Gateway 的 `custom-opencode/responses`，遇到网络、超时、限流、上游服务或输出校验错误时再调用 `custom-codex/responses`；两次均失败才交给 Workflow 步骤重试，残缺结果不保存。
 - 特征与关键词在一次 D1 `batch()` 中覆盖。
-- 自动研报关系只使用 article 的标题、摘要、机构和结构化关键词；仅保存直接关系、置信度与依据。人工 `linked` / `excluded` 决定不被后续 AI upsert 覆盖。
+- 自动研报关系只使用 article 的标题、摘要、机构和结构化关键词；每个候选政策—研报对只让模型返回一个 `related` 布尔值，仅保存判断为直接相关的关系。人工 `linked` / `excluded` 决定不被后续 AI upsert 覆盖。
 - 政策聚合以共同改革目标和集中发布安排为上位口径：同一政策包可包含不同部门、不同文件和不同政策工具；只有宽泛行业主题相同不能合并。近期碎片卡片可自动归并到总览卡片，但含人工研报关系或研究点评的卡片不得作为被合并来源。
 - R2 与 AI Search 按同 key 幂等；AI Search 必须等待 `completed`，`running` 不是成功。
 - `file_content_empty` 在既定重试后仍失败时成为不可重试错误，保留可诊断状态。

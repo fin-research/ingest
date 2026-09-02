@@ -14,6 +14,7 @@ import {
 export const POLICY_PROMPT_VERSION = "policy-aggregation-v2";
 export const POLICY_BATCH_SIZE = 40;
 export const POLICY_DETAIL_CONCURRENCY = 5;
+export const POLICY_ASSOCIATION_CONCURRENCY = 5;
 const POLICY_CLAIM_STALE_MS = 2 * 60 * 60 * 1000;
 const POLICY_LOOKBACK_DAYS = 7;
 
@@ -171,7 +172,7 @@ interface KeywordRow {
   impact: string;
 }
 
-interface ArticleEvidence {
+export interface PolicyArticleEvidence {
   id: string;
   title: string;
   summary: string;
@@ -188,8 +189,6 @@ interface ArticleEvidence {
 interface PolicyArticleMatch {
   policyId: string;
   articleId: string;
-  confidence: "high" | "medium";
-  rationale: string;
 }
 
 interface PendingPolicyNewsRow {
@@ -216,11 +215,11 @@ const AGGREGATION_INSTRUCTIONS = `你是面向专业投资者的中国政策研�
 
 必须覆盖全部待处理 newsIds，且每个 newsId 只能出现一次。严格按 JSON Schema 输出，不输出 Markdown、解释过程或额外字段。`;
 
-const ASSOCIATION_INSTRUCTIONS = `你是专业金融研究资料管理员。输入包含已经结构化的政策卡片和研报证据卡片。请只返回与政策存在直接研究关系的政策—研报配对。
+const ASSOCIATION_INSTRUCTIONS = `你是专业金融研究资料管理员。输入包含已经结构化的一张政策卡片和一张研报证据卡片。请判断研报是否与政策存在直接研究关系。
 
 可以关联的情形：研报明确解读该政策文件、同一组配套措施、政策传导或对资产定价与融资的直接影响。仅仅同属房地产、财政、货币等宽泛主题，或只是背景中顺带提及，不得关联。拿不准时不关联。
 
-confidence=high 表示标题或摘要已明确指向该政策；confidence=medium 表示结构化事实与政策动作一致但标题未直接点名。rationale 用一句话说明直接证据，不得补充输入外事实。严格按 JSON Schema 输出，不输出 Markdown、过程或额外字段。`;
+只输出一个 related 布尔值表示是否关联。不得输出置信度、理由、政策 ID、研报 ID、Markdown、判断过程或额外字段。`;
 
 export async function runPolicyCollection(
   dependencies: PolicyCollectorDependencies,
@@ -607,10 +606,10 @@ export class D1PolicyNewsRepository implements PolicyNewsRepository {
         statements.push(this.database.prepare(`
           INSERT OR IGNORE INTO policy_article (
             policy_id, article_id, relation_status, association_method,
-            confidence, rationale, created_at, updated_at
+            created_at, updated_at
           )
           SELECT ?, article_id, relation_status, association_method,
-                 confidence, rationale, created_at, updated_at
+                 created_at, updated_at
           FROM policy_article
           WHERE policy_id = ? AND association_method = 'ai'
         `).bind(policyId, mergedPolicy.id));
@@ -690,7 +689,7 @@ export class D1PolicyNewsRepository implements PolicyNewsRepository {
 export class D1PolicyAssociationRepository {
   constructor(private readonly database: D1Database) {}
 
-  async loadArticle(articleId: string): Promise<ArticleEvidence | null> {
+  async loadArticle(articleId: string): Promise<PolicyArticleEvidence | null> {
     const article = await this.database.prepare(`
       SELECT id, title, summary, author, published_at
       FROM article
@@ -714,7 +713,7 @@ export class D1PolicyAssociationRepository {
     return await this.queryPolicies(`id IN (${placeholders})`, uniqueIds);
   }
 
-  async loadArticlesForPolicies(policies: ExistingPolicy[]): Promise<ArticleEvidence[]> {
+  async loadArticlesForPolicies(policies: ExistingPolicy[]): Promise<PolicyArticleEvidence[]> {
     if (policies.length === 0) return [];
     const startDate = policies
       .map((policy) => offsetIsoDate(policy.policyDate, -1))
@@ -740,20 +739,16 @@ export class D1PolicyAssociationRepository {
     const statement = this.database.prepare(`
       INSERT INTO policy_article (
         policy_id, article_id, relation_status, association_method,
-        confidence, rationale, created_at, updated_at
-      ) VALUES (?, ?, 'linked', 'ai', ?, ?, ?, ?)
+        created_at, updated_at
+      ) VALUES (?, ?, 'linked', 'ai', ?, ?)
       ON CONFLICT(policy_id, article_id) DO UPDATE SET
         relation_status = 'linked',
-        confidence = excluded.confidence,
-        rationale = excluded.rationale,
         updated_at = excluded.updated_at
       WHERE policy_article.association_method = 'ai'
     `);
     await this.database.batch(matches.map((match) => statement.bind(
       match.policyId,
       match.articleId,
-      match.confidence,
-      match.rationale,
       normalizedSavedAt,
       normalizedSavedAt,
     )));
@@ -795,7 +790,7 @@ export class D1PolicyAssociationRepository {
     }));
   }
 
-  private async attachKeywords(articles: ArticleRow[]): Promise<ArticleEvidence[]> {
+  private async attachKeywords(articles: ArticleRow[]): Promise<PolicyArticleEvidence[]> {
     if (articles.length === 0) return [];
     const placeholders = articles.map(() => "?").join(", ");
     const keywords = await this.database.prepare(`
@@ -804,7 +799,7 @@ export class D1PolicyAssociationRepository {
       WHERE article_id IN (${placeholders})
       ORDER BY article_id ASC, ordinal ASC
     `).bind(...articles.map((article) => article.id)).all<KeywordRow>();
-    const byArticle = new Map<string, ArticleEvidence["keywords"]>();
+    const byArticle = new Map<string, PolicyArticleEvidence["keywords"]>();
     for (const row of keywords.results) {
       const values = byArticle.get(row.article_id) ?? [];
       values.push({
@@ -946,80 +941,52 @@ function policyAggregationSchema(
   });
 }
 
-async function generatePolicyArticleMatches(
+export async function generatePolicyArticleMatches(
   credentials: AiGatewayCredentials,
   policies: ExistingPolicy[],
-  articles: ArticleEvidence[],
+  articles: PolicyArticleEvidence[],
+  fetcher: typeof fetch = fetch,
 ): Promise<PolicyArticleMatch[]> {
-  const policyIds = new Set(policies.map((item) => item.id));
-  const articleIds = new Set(articles.map((item) => item.id));
-  const validPairs = new Set(
-    policies.flatMap((policy) => articles
-      .filter((article) => {
-        const articleDate = isoDatePart(article.publishedAt);
-        return articleDate >= offsetIsoDate(policy.policyDate, -1)
-          && articleDate <= offsetIsoDate(policy.policyDate, 14);
-      })
-      .map((article) => `${policy.id}\u0000${article.id}`)),
-  );
-  const schema = z.object({
-    matches: z.array(z.object({
-      policyId: z.string().min(1),
-      articleId: z.string().min(1),
-      confidence: z.enum(["high", "medium"]),
-      rationale: z.string().min(10).max(320),
-    }).strict()).max(Math.min(100, policies.length * articles.length)),
-  }).strict().superRefine((value, context) => {
-    const pairs = new Set<string>();
-    for (const [index, match] of value.matches.entries()) {
-      if (!policyIds.has(match.policyId) || !articleIds.has(match.articleId)) {
-        context.addIssue({
-          code: "custom",
-          path: ["matches", index],
-          message: "match must reference supplied policy and article IDs",
-        });
-      }
-      const pair = `${match.policyId}\u0000${match.articleId}`;
-      if (!validPairs.has(pair)) {
-        context.addIssue({
-          code: "custom",
-          path: ["matches", index],
-          message: "match falls outside the policy association date window",
-        });
-      }
-      if (pairs.has(pair)) {
-        context.addIssue({
-          code: "custom",
-          path: ["matches", index],
-          message: "duplicate policy and article match",
-        });
-      }
-      pairs.add(pair);
-    }
-  });
-  const result = await generateAiGatewayObject(
-    credentials,
-    [
-      { role: "system", content: ASSOCIATION_INSTRUCTIONS },
-      {
-        role: "user",
-        content: JSON.stringify({ policies, articles }),
-      },
-    ],
-    schema,
-    "policy_article_association",
-    {
-      promptCacheKey: "policy-tracking:article-association-v1",
-      requestTimeoutMs: 300_000,
-      taskType: "analysis",
-      metadata: {
-        policy_count: policies.length,
-        article_count: articles.length,
-        tags: "policy-tracking,article-association",
-      },
+  const candidatePairs = policies.flatMap((policy) => articles
+    .filter((article) => {
+      const articleDate = isoDatePart(article.publishedAt);
+      return articleDate >= offsetIsoDate(policy.policyDate, -1)
+        && articleDate <= offsetIsoDate(policy.policyDate, 14);
+    })
+    .map((article) => ({ policy, article })));
+  const decisions = await mapWithConcurrency(
+    candidatePairs,
+    POLICY_ASSOCIATION_CONCURRENCY,
+    async ({ policy, article }): Promise<PolicyArticleMatch | null> => {
+      const result = await generateAiGatewayObject(
+        credentials,
+        [
+          { role: "system", content: ASSOCIATION_INSTRUCTIONS },
+          {
+            role: "user",
+            content: JSON.stringify({ policy, article }),
+          },
+        ],
+        z.object({ related: z.boolean() }).strict(),
+        "policy_article_association",
+        {
+          promptCacheKey: "policy-tracking:article-association-v2",
+          requestTimeoutMs: 300_000,
+          taskType: "analysis",
+          metadata: {
+            policy_count: 1,
+            article_count: 1,
+            tags: "policy-tracking,article-association",
+          },
+        },
+        fetcher,
+      );
+      return result.related
+        ? { policyId: policy.id, articleId: article.id }
+        : null;
     },
   );
-  return result.matches;
+  return decisions.filter((match): match is PolicyArticleMatch => match !== null);
 }
 
 function credentialsFromEnv(

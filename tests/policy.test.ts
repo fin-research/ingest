@@ -7,11 +7,14 @@ import type { ArticleMetadata } from "../src/article";
 import {
   D1PolicyNewsRepository,
   generatePolicyAggregation,
+  generatePolicyArticleMatches,
+  POLICY_ASSOCIATION_CONCURRENCY,
   POLICY_PROMPT_VERSION,
   policyWorkflowInstanceId,
   runPolicyCollection,
   type PolicyAggregationCandidate,
   type PolicyAggregationResult,
+  type PolicyArticleEvidence,
   type PolicyNewsEvidence,
   type PolicyNewsRepository,
   type PolicyNewsRow,
@@ -316,9 +319,8 @@ describe("policy package aggregation", () => {
       env.DB.prepare(`
         INSERT INTO policy_article (
           policy_id, article_id, relation_status, association_method,
-          confidence, rationale, created_at, updated_at
-        ) VALUES (?, 'test-policy-article', 'linked', 'ai', 'high',
-          '研报直接解读房地产信贷管理意见。', ?, ?)
+          created_at, updated_at
+        ) VALUES (?, 'test-policy-article', 'linked', 'ai', ?, ?)
       `).bind(fragmentId, createdAt, createdAt),
     ]);
     const evidence: PolicyNewsEvidence[] = [{
@@ -430,6 +432,57 @@ describe("policy package aggregation", () => {
   });
 });
 
+describe("policy article association", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("asks the model for one related boolean and restores IDs outside the model output", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const requests: Array<Record<string, unknown>> = [];
+    const fetcher: typeof fetch = async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return responsesOutput({ related: requests.length === 1 });
+    };
+    const policies = [
+      policyCandidate("policy-1", "房地产信贷政策", false),
+      policyCandidate("policy-2", "资本市场政策", false),
+    ];
+    const article: PolicyArticleEvidence = {
+      id: "article-1",
+      title: "房地产信贷政策解读",
+      summary: "研报分析房地产信贷政策对融资和资产定价的直接影响。",
+      author: "测试机构",
+      publishedAt: "2026-08-29T09:00:00+08:00",
+      keywords: [],
+    };
+
+    const matches = await generatePolicyArticleMatches(
+      { accountId: "account", gatewayId: "default", token: "token" },
+      policies,
+      [article],
+      fetcher,
+    );
+
+    expect(matches).toEqual([{ policyId: "policy-1", articleId: "article-1" }]);
+    expect(requests).toHaveLength(2);
+    expect(POLICY_ASSOCIATION_CONCURRENCY).toBe(5);
+    for (const request of requests) {
+      expect(request.prompt_cache_key).toBe("policy-tracking:article-association-v2");
+      expect(request.instructions).toContain("只输出一个 related 布尔值");
+      expect(request.instructions).not.toMatch(/confidence|rationale/);
+      const format = (request.text as { format: { schema: Record<string, unknown> } }).format;
+      expect(format.schema).toMatchObject({
+        type: "object",
+        properties: { related: { type: "boolean" } },
+        required: ["related"],
+        additionalProperties: false,
+      });
+      expect(Object.keys(format.schema.properties as Record<string, unknown>)).toEqual(["related"]);
+    }
+  });
+});
+
 function policyCandidate(
   id: string,
   title: string,
@@ -465,7 +518,7 @@ async function createPolicyMergeTestTables(): Promise<void> {
     env.DB.prepare("CREATE TABLE IF NOT EXISTS policy_event (id TEXT PRIMARY KEY, title TEXT NOT NULL, summary TEXT NOT NULL, category TEXT NOT NULL, departments_json TEXT NOT NULL, policy_date TEXT NOT NULL, first_news_at TEXT NOT NULL, last_news_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS policy_news (sentiment_id TEXT PRIMARY KEY, policy_id TEXT, title TEXT NOT NULL, published_at TEXT NOT NULL, content TEXT, link TEXT, aggregation_status TEXT NOT NULL, workflow_instance_id TEXT, discovered_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS article (id TEXT PRIMARY KEY, title TEXT NOT NULL, published_at TEXT NOT NULL)"),
-    env.DB.prepare("CREATE TABLE IF NOT EXISTS policy_article (policy_id TEXT NOT NULL, article_id TEXT NOT NULL, relation_status TEXT NOT NULL, association_method TEXT NOT NULL, confidence TEXT, rationale TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (policy_id, article_id))"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS policy_article (policy_id TEXT NOT NULL, article_id TEXT NOT NULL, relation_status TEXT NOT NULL, association_method TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (policy_id, article_id))"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS research_commentary (id TEXT PRIMARY KEY, policy_id TEXT UNIQUE)"),
   ]);
 }
