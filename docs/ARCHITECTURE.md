@@ -32,8 +32,8 @@ Cron → GET {ARTICLE_API_BASE_URL}/news?tag=中央政策&pageSize=100&fields=se
      → D1 insert pending policy_news + claim unowned or stale rows
      → create one PolicyWorkflow policy-{scheduledTime}
         1. bounded-concurrency DM detail fetch
-        2. AI merge the same formal policy and match recent policy_event rows
-        3. D1 batch write policy_event / policy_news
+        2. AI 按政策事件/政策包口径归并，并复核近期 policy_event 是否为同一政策包碎片
+        3. D1 批量更新规范 policy_event、迁移碎片卡片证据并写入 policy_news
         4. AI match existing article rows from policy date -1 to +14 days
 ```
 
@@ -61,6 +61,7 @@ DM detail
 - AI 特征抽取通过统一 adapter 和 Zod Schema，先直连 AI Gateway 的 `custom-opencode/responses`，遇到网络、超时、限流、上游服务或输出校验错误时再调用 `custom-codex/responses`；两次均失败才交给 Workflow 步骤重试，残缺结果不保存。
 - 特征与关键词在一次 D1 `batch()` 中覆盖。
 - 自动研报关系只使用 article 的标题、摘要、机构和结构化关键词；仅保存直接关系、置信度与依据。人工 `linked` / `excluded` 决定不被后续 AI upsert 覆盖。
+- 政策聚合以共同改革目标和集中发布安排为上位口径：同一政策包可包含不同部门、不同文件和不同政策工具；只有宽泛行业主题相同不能合并。近期碎片卡片可自动归并到总览卡片，但含人工研报关系或研究点评的卡片不得作为被合并来源。
 - R2 与 AI Search 按同 key 幂等；AI Search 必须等待 `completed`，`running` 不是成功。
 - `file_content_empty` 在既定重试后仍失败时成为不可重试错误，保留可诊断状态。
 

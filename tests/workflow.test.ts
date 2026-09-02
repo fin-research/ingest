@@ -118,6 +118,7 @@ describe("Policy aggregation workflow steps", () => {
           {
             groups: [{
               existingPolicyId: null,
+              mergePolicyIds: [],
               title: "房地产信贷管理新政",
               summary: "央行与金融监管总局改革完善房地产信贷管理制度。",
               category: "real_estate",
@@ -134,6 +135,7 @@ describe("Policy aggregation workflow steps", () => {
             policies: 1,
             newPolicies: 1,
             updatedPolicies: 0,
+            mergedPolicies: 0,
             policyIds: ["policy-id-1"],
           },
         );

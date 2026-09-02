@@ -8,6 +8,7 @@ export default defineConfig({
       miniflare: {
         compatibilityDate: "2026-08-11",
         compatibilityFlags: ["nodejs_compat"],
+        d1Databases: ["DB"],
         workflows: {
           ARTICLE_WORKFLOW: { name: "article", className: "ArticleWorkflow" },
           TELEGRAM_WORKFLOW: { name: "telegram", className: "TelegramWorkflow" },
