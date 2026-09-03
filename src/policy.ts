@@ -15,6 +15,7 @@ export const POLICY_PROMPT_VERSION = "policy-aggregation-v2";
 export const POLICY_BATCH_SIZE = 40;
 export const POLICY_DETAIL_CONCURRENCY = 5;
 export const POLICY_ASSOCIATION_CONCURRENCY = 5;
+export const POLICY_ASSOCIATION_PROMPT_VERSION = "article-association-v3";
 const POLICY_CLAIM_STALE_MS = 2 * 60 * 60 * 1000;
 const POLICY_LOOKBACK_DAYS = 7;
 
@@ -215,11 +216,9 @@ const AGGREGATION_INSTRUCTIONS = `你是面向专业投资者的中国政策研�
 
 必须覆盖全部待处理 newsIds，且每个 newsId 只能出现一次。严格按 JSON Schema 输出，不输出 Markdown、解释过程或额外字段。`;
 
-const ASSOCIATION_INSTRUCTIONS = `你是专业金融研究资料管理员。输入包含已经结构化的一张政策卡片和一张研报证据卡片。请判断研报是否与政策存在直接研究关系。
+const ASSOCIATION_INSTRUCTIONS = `你是专业金融研究资料管理员。输入包含已经结构化的政策卡片和研报证据卡片。请逐一判断输入中的候选对象是否存在直接研究关系。
 
-可以关联的情形：研报明确解读该政策文件、同一组配套措施、政策传导或对资产定价与融资的直接影响。仅仅同属房地产、财政、货币等宽泛主题，或只是背景中顺带提及，不得关联。拿不准时不关联。
-
-只输出一个 related 布尔值表示是否关联。不得输出置信度、理由、政策 ID、研报 ID、Markdown、判断过程或额外字段。`;
+可以关联的情形：研报明确解读该政策文件、同一组配套措施、政策传导或对资产定价与融资的直接影响。仅仅同属房地产、财政、货币等宽泛主题，或只是背景中顺带提及，不得关联。拿不准时不关联。`;
 
 export async function runPolicyCollection(
   dependencies: PolicyCollectorDependencies,
@@ -333,10 +332,10 @@ export async function associateArticleWithPolicies(
   if (policies.length === 0) {
     return { evaluatedPolicies: 0, evaluatedArticles: 1, matches: 0 };
   }
-  const matches = await generatePolicyArticleMatches(
+  const matches = await generateArticlePolicyMatches(
     credentialsFromEnv(env),
+    article,
     policies,
-    [article],
   );
   await repository.saveAutomaticMatches(matches, new Date().toISOString());
   return {
@@ -359,11 +358,15 @@ export async function associatePoliciesWithArticles(
   if (articles.length === 0) {
     return { evaluatedPolicies: policies.length, evaluatedArticles: 0, matches: 0 };
   }
-  const matches = await generatePolicyArticleMatches(
-    credentialsFromEnv(env),
+  const matches = (await mapWithConcurrency(
     policies,
-    articles,
-  );
+    POLICY_ASSOCIATION_CONCURRENCY,
+    async (policy) => await generatePolicyArticleMatches(
+      credentialsFromEnv(env),
+      policy,
+      articles,
+    ),
+  )).flat();
   await repository.saveAutomaticMatches(matches, new Date().toISOString());
   return {
     evaluatedPolicies: policies.length,
@@ -941,52 +944,102 @@ function policyAggregationSchema(
   });
 }
 
+export async function generateArticlePolicyMatches(
+  credentials: AiGatewayCredentials,
+  article: PolicyArticleEvidence,
+  policies: ExistingPolicy[],
+  fetcher: typeof fetch = fetch,
+): Promise<PolicyArticleMatch[]> {
+  const articleDate = isoDatePart(article.publishedAt);
+  const candidatePolicies = policies.filter(
+    (policy) => articleDate >= offsetIsoDate(policy.policyDate, -1)
+      && articleDate <= offsetIsoDate(policy.policyDate, 14),
+  );
+  if (candidatePolicies.length === 0) return [];
+  const decisions = await generateAssociationBatch(
+    credentials,
+    candidatePolicies.map((policy) => policy.id),
+    { article, policies: candidatePolicies },
+    "article_policy_associations",
+    {
+      policy_count: candidatePolicies.length,
+      article_count: 1,
+      association_direction: "article-to-policies",
+      tags: "policy-tracking,article-association",
+    },
+    fetcher,
+  );
+  return candidatePolicies.flatMap((policy) => decisions[policy.id]?.related
+    ? [{ policyId: policy.id, articleId: article.id }]
+    : []);
+}
+
 export async function generatePolicyArticleMatches(
   credentials: AiGatewayCredentials,
-  policies: ExistingPolicy[],
+  policy: ExistingPolicy,
   articles: PolicyArticleEvidence[],
   fetcher: typeof fetch = fetch,
 ): Promise<PolicyArticleMatch[]> {
-  const candidatePairs = policies.flatMap((policy) => articles
-    .filter((article) => {
-      const articleDate = isoDatePart(article.publishedAt);
-      return articleDate >= offsetIsoDate(policy.policyDate, -1)
-        && articleDate <= offsetIsoDate(policy.policyDate, 14);
-    })
-    .map((article) => ({ policy, article })));
-  const decisions = await mapWithConcurrency(
-    candidatePairs,
-    POLICY_ASSOCIATION_CONCURRENCY,
-    async ({ policy, article }): Promise<PolicyArticleMatch | null> => {
-      const result = await generateAiGatewayObject(
-        credentials,
-        [
-          { role: "system", content: ASSOCIATION_INSTRUCTIONS },
-          {
-            role: "user",
-            content: JSON.stringify({ policy, article }),
-          },
-        ],
-        z.object({ related: z.boolean() }).strict(),
-        "policy_article_association",
-        {
-          promptCacheKey: "policy-tracking:article-association-v2",
-          requestTimeoutMs: 300_000,
-          taskType: "analysis",
-          metadata: {
-            policy_count: 1,
-            article_count: 1,
-            tags: "policy-tracking,article-association",
-          },
-        },
-        fetcher,
-      );
-      return result.related
-        ? { policyId: policy.id, articleId: article.id }
-        : null;
+  const candidateArticles = articles.filter((article) => {
+    const articleDate = isoDatePart(article.publishedAt);
+    return articleDate >= offsetIsoDate(policy.policyDate, -1)
+      && articleDate <= offsetIsoDate(policy.policyDate, 14);
+  });
+  if (candidateArticles.length === 0) return [];
+  const decisions = await generateAssociationBatch(
+    credentials,
+    candidateArticles.map((article) => article.id),
+    { policy, articles: candidateArticles },
+    "policy_article_associations",
+    {
+      policy_count: 1,
+      article_count: candidateArticles.length,
+      association_direction: "policy-to-articles",
+      tags: "policy-tracking,article-association",
     },
+    fetcher,
   );
-  return decisions.filter((match): match is PolicyArticleMatch => match !== null);
+  return candidateArticles.flatMap((article) => decisions[article.id]?.related
+    ? [{ policyId: policy.id, articleId: article.id }]
+    : []);
+}
+
+async function generateAssociationBatch(
+  credentials: AiGatewayCredentials,
+  candidateIds: string[],
+  input: object,
+  schemaName: string,
+  metadata: Record<string, string | number | boolean>,
+  fetcher: typeof fetch,
+): Promise<Record<string, { related: boolean }>> {
+  return await generateAiGatewayObject(
+    credentials,
+    [
+      { role: "system", content: ASSOCIATION_INSTRUCTIONS },
+      { role: "user", content: JSON.stringify(input) },
+    ],
+    associationBatchSchema(candidateIds),
+    schemaName,
+    {
+      promptCacheKey: `policy-tracking:${POLICY_ASSOCIATION_PROMPT_VERSION}`,
+      requestTimeoutMs: 300_000,
+      taskType: "analysis",
+      metadata,
+    },
+    fetcher,
+  );
+}
+
+function associationBatchSchema(candidateIds: string[]) {
+  if (candidateIds.length === 0) {
+    throw new Error("Policy association requires at least one candidate");
+  }
+  const decisionSchema = z.object({ related: z.boolean() }).strict();
+  const shape: Record<string, typeof decisionSchema> = {};
+  for (const candidateId of candidateIds) {
+    shape[candidateId] = decisionSchema;
+  }
+  return z.object(shape).strict();
 }
 
 function credentialsFromEnv(

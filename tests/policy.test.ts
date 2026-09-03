@@ -6,9 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ArticleMetadata } from "../src/article";
 import {
   D1PolicyNewsRepository,
+  generateArticlePolicyMatches,
   generatePolicyAggregation,
   generatePolicyArticleMatches,
   POLICY_ASSOCIATION_CONCURRENCY,
+  POLICY_ASSOCIATION_PROMPT_VERSION,
   POLICY_PROMPT_VERSION,
   policyWorkflowInstanceId,
   runPolicyCollection,
@@ -437,12 +439,15 @@ describe("policy article association", () => {
     vi.restoreAllMocks();
   });
 
-  it("asks the model for one related boolean and restores IDs outside the model output", async () => {
+  it("matches one article against all candidate policies in one structured call", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const requests: Array<Record<string, unknown>> = [];
     const fetcher: typeof fetch = async (_url, init) => {
       requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-      return responsesOutput({ related: requests.length === 1 });
+      return responsesOutput({
+        "policy-1": { related: true },
+        "policy-2": { related: false },
+      });
     };
     const policies = [
       policyCandidate("policy-1", "房地产信贷政策", false),
@@ -457,29 +462,113 @@ describe("policy article association", () => {
       keywords: [],
     };
 
-    const matches = await generatePolicyArticleMatches(
+    const matches = await generateArticlePolicyMatches(
       { accountId: "account", gatewayId: "default", token: "token" },
+      article,
       policies,
-      [article],
       fetcher,
     );
 
     expect(matches).toEqual([{ policyId: "policy-1", articleId: "article-1" }]);
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(1);
     expect(POLICY_ASSOCIATION_CONCURRENCY).toBe(5);
-    for (const request of requests) {
-      expect(request.prompt_cache_key).toBe("policy-tracking:article-association-v2");
-      expect(request.instructions).toContain("只输出一个 related 布尔值");
-      expect(request.instructions).not.toMatch(/confidence|rationale/);
-      const format = (request.text as { format: { schema: Record<string, unknown> } }).format;
-      expect(format.schema).toMatchObject({
-        type: "object",
-        properties: { related: { type: "boolean" } },
-        required: ["related"],
-        additionalProperties: false,
+    const request = requests[0]!;
+    expect(request.prompt_cache_key).toBe(
+      `policy-tracking:${POLICY_ASSOCIATION_PROMPT_VERSION}`,
+    );
+    expect(request.instructions).not.toContain("只输出一个 related 布尔值");
+    expect(request.instructions).not.toContain("不得输出置信度");
+    const input = request.input as Array<{ content: string }>;
+    expect(JSON.parse(input[0]?.content ?? "null")).toMatchObject({
+      article: { id: "article-1" },
+      policies: [{ id: "policy-1" }, { id: "policy-2" }],
+    });
+    const format = (request.text as { format: { schema: Record<string, unknown> } }).format;
+    expect(format.schema).toMatchObject({
+      type: "object",
+      properties: {
+        "policy-1": {
+          type: "object",
+          properties: { related: { type: "boolean" } },
+          required: ["related"],
+          additionalProperties: false,
+        },
+        "policy-2": {
+          type: "object",
+          properties: { related: { type: "boolean" } },
+          required: ["related"],
+          additionalProperties: false,
+        },
+      },
+      required: ["policy-1", "policy-2"],
+      additionalProperties: false,
+    });
+  });
+
+  it("matches one policy against all candidate articles in one structured call", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const requests: Array<Record<string, unknown>> = [];
+    const fetcher: typeof fetch = async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return responsesOutput({
+        "article-1": { related: true },
+        "article-2": { related: false },
       });
-      expect(Object.keys(format.schema.properties as Record<string, unknown>)).toEqual(["related"]);
-    }
+    };
+    const articles: PolicyArticleEvidence[] = [
+      {
+        id: "article-1",
+        title: "房地产信贷政策解读",
+        summary: "研报分析房地产信贷政策对融资和资产定价的直接影响。",
+        author: "测试机构一",
+        publishedAt: "2026-08-29T09:00:00+08:00",
+        keywords: [],
+      },
+      {
+        id: "article-2",
+        title: "资本市场周报",
+        summary: "研报讨论资本市场交易表现，未直接研究房地产政策。",
+        author: "测试机构二",
+        publishedAt: "2026-08-30T09:00:00+08:00",
+        keywords: [],
+      },
+    ];
+
+    const matches = await generatePolicyArticleMatches(
+      { accountId: "account", gatewayId: "default", token: "token" },
+      policyCandidate("policy-1", "房地产信贷政策", false),
+      articles,
+      fetcher,
+    );
+
+    expect(matches).toEqual([{ policyId: "policy-1", articleId: "article-1" }]);
+    expect(requests).toHaveLength(1);
+    const request = requests[0]!;
+    const input = request.input as Array<{ content: string }>;
+    expect(JSON.parse(input[0]?.content ?? "null")).toMatchObject({
+      policy: { id: "policy-1" },
+      articles: [{ id: "article-1" }, { id: "article-2" }],
+    });
+    const format = (request.text as { format: { schema: Record<string, unknown> } }).format;
+    expect(format.schema).toMatchObject({
+      type: "object",
+      properties: {
+        "article-1": {
+          type: "object",
+          properties: { related: { type: "boolean" } },
+          required: ["related"],
+          additionalProperties: false,
+        },
+        "article-2": {
+          type: "object",
+          properties: { related: { type: "boolean" } },
+          required: ["related"],
+          additionalProperties: false,
+        },
+      },
+      required: ["article-1", "article-2"],
+      additionalProperties: false,
+    });
   });
 });
 
