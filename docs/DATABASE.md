@@ -40,7 +40,7 @@ D1 绑定为 `DB`，数据库名 `eastmoney`。最终 schema 以 `migrations/` �
 
 ## 政策跟踪
 
-- `policy_event`：一条已归并政策事件或政策包，保存规范标题、累计摘要、累计发布部门、政策日期和首末资讯时间；不同正式文件若属于同一集中发布的一揽子安排，不按文件拆卡。
+- `policy_event`：一条已归并政策事件或政策包，保存规范标题、累计摘要、累计发布部门、政策日期、首末资讯时间和 `importance`。重要性以境内资金面、货币市场和利率影响为中心，枚举为 `important`（重要）、`related`（关联）、`general`（一般）；不同正式文件若属于同一集中发布的一揽子安排，不按文件拆卡。
 - `policy_news`：`中央政策` 标签资讯队列及政策证据；抓取后先以 `pending` 入库并由 Workflow 认领，聚合完成后变为 `grouped` 且必须关联一个 `policy_event`。超时认领可由后续 Cron 重新接管。
 - `policy_article`：政策与 article 的多对多关系，只保存关系状态、关联方式和时间戳，不保存模型置信度或关联理由；`manual` 表示人工关联或排除，自动 upsert 不覆盖。
 - `research_commentary`：由 Dashboard 维护的政策点评；ingest 只读取是否存在，用于保护已有点评的政策卡片不被自动并入其他卡片。本仓库保留同结构的 `CREATE TABLE IF NOT EXISTS` migration，保证独立本地环境具备完整共享 D1 schema。

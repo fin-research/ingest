@@ -32,8 +32,8 @@ Cron → GET {ARTICLE_API_BASE_URL}/news?tag=中央政策&pageSize=100&fields=se
      → D1 insert pending policy_news + claim unowned or stale rows
      → create one PolicyWorkflow policy-{scheduledTime}
         1. bounded-concurrency DM detail fetch
-        2. AI 按政策事件/政策包口径归并，并复核近期 policy_event 是否为同一政策包碎片
-        3. D1 批量更新规范 policy_event、迁移碎片卡片证据并写入 policy_news
+        2. AI 按政策事件/政策包口径归并，复核近期 policy_event 是否为同一政策包碎片，并按境内资金/利率影响判定重要性
+        3. D1 批量更新规范 policy_event（含 `important` / `related` / `general`）、迁移碎片卡片证据并写入 policy_news
         4. AI match existing article rows from policy date -1 to +14 days
 ```
 

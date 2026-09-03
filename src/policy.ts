@@ -11,7 +11,7 @@ import {
   type AiGatewayCredentials,
 } from "./ai-gateway";
 
-export const POLICY_PROMPT_VERSION = "policy-aggregation-v2";
+export const POLICY_PROMPT_VERSION = "policy-aggregation-v3";
 export const POLICY_BATCH_SIZE = 40;
 export const POLICY_DETAIL_CONCURRENCY = 5;
 export const POLICY_ASSOCIATION_CONCURRENCY = 5;
@@ -30,18 +30,26 @@ const policyCategorySchema = z.enum([
   "other",
 ]);
 
+const policyImportanceSchema = z.enum([
+  "important",
+  "related",
+  "general",
+]);
+
 const policyGroupSchema = z.object({
   existingPolicyId: z.string().min(1).nullable(),
   mergePolicyIds: z.array(z.string().min(1)).max(100),
   title: z.string().min(4).max(240),
   summary: z.string().min(20).max(1_600),
   category: policyCategorySchema,
+  importance: policyImportanceSchema,
   departments: z.array(z.string().min(2).max(80)).min(1).max(12),
   policyDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isIsoDate, "invalid policy date"),
   newsIds: z.array(z.string().min(1)).max(POLICY_BATCH_SIZE),
 }).strict();
 
 export type PolicyCategory = z.infer<typeof policyCategorySchema>;
+export type PolicyImportance = z.infer<typeof policyImportanceSchema>;
 
 export interface PolicyNewsRow extends ArticleMetadata {
   discoveredAt: string;
@@ -58,6 +66,7 @@ export interface ExistingPolicy {
   title: string;
   summary: string;
   category: PolicyCategory;
+  importance: PolicyImportance;
   departments: string[];
   policyDate: string;
   firstNewsAt: string;
@@ -75,6 +84,7 @@ export interface PolicyAggregationGroup {
   title: string;
   summary: string;
   category: PolicyCategory;
+  importance: PolicyImportance;
   departments: string[];
   policyDate: string;
   newsIds: string[];
@@ -142,6 +152,7 @@ interface PolicyRow {
   title: string;
   summary: string;
   category: PolicyCategory;
+  importance: PolicyImportance;
   departments_json: string;
   policy_date: string;
   first_news_at: string;
@@ -209,6 +220,12 @@ const AGGREGATION_INSTRUCTIONS = `你是面向专业投资者的中国政策研�
 3. 只有行业主题相近，但缺少共同改革目标、集中发布安排或明确配套关系的独立政策，才分别建卡。不得仅因都属于房地产、财政、货币等宽泛主题而合并。
 
 “828房地产政策”是必须遵守的业务口径示例：同日集中发布的《商品住房开发贷款管理办法（试行）》及同批房地产融资管理办法、《关于改革完善房地产信贷管理推动加快构建房地产发展新模式的意见》、《关于资本市场支持构建房地产发展新模式的意见》、《关于完善商品住房销售制度的通知》，以及相关答问、拆分要点和总览，统一归为一个“828房地产政策”事件，不按文件或主管部门拆卡。
+
+完成政策归组并理解整组政策的传导影响后，为每个 group 判定 importance。我们的关注重点是中国境内资金面、货币市场和利率：
+- important（重要）：直接决定或显著影响境内流动性、政策利率、货币市场和利率债定价的政策。中国人民银行的货币政策、降准降息、政策利率、公开市场操作和总量流动性部署均属于重要；中央政治局会议、中央财经委员会会议、国务院常务会议等高层对宏观政策的部署也属于重要。
+- related（关联）：不属于上述重要政策，但对境内资金面、货币市场或利率存在明确传导或影响，包括其他宏观政策，以及与货币市场制度、监管或运行直接相关的安排。
+- general（一般）：与上述关注范围缺少直接或明确传导的政策；单纯的财政政策、产业政策、行业政策、贸易政策或民生政策通常属于一般。
+先在内部分析政策对关注范围的影响和传导链条，再填写 importance；不要输出分析过程。
 
 已有卡片也必须按上述口径复核。若多个 existingPolicies 实际是同一政策包的碎片：用 existingPolicyId 指向标题和摘要最能覆盖整组政策包的卡片，并把其余卡片 ID 全部放入 mergePolicyIds；若没有明显总览卡片，选 firstNewsAt 最早者作为 existingPolicyId。即使本批没有属于该政策包的新资讯，也可以输出 newsIds=[] 的合并组。mergeProtected=true 的卡片包含人工关系或研究点评，只能作为 existingPolicyId 保留，绝不能放入 mergePolicyIds。新建政策时 existingPolicyId=null 且 mergePolicyIds=[]。
 
@@ -462,7 +479,8 @@ export class D1PolicyNewsRepository implements PolicyNewsRepository {
     if (Number.isNaN(cutoff.valueOf())) throw new Error("Policy publishedAt is invalid");
     cutoff.setUTCDate(cutoff.getUTCDate() - POLICY_LOOKBACK_DAYS);
     const policies = await this.database.prepare(`
-      SELECT pe.id, pe.title, pe.summary, pe.category, pe.departments_json, pe.policy_date,
+      SELECT pe.id, pe.title, pe.summary, pe.category, pe.importance,
+             pe.departments_json, pe.policy_date,
              pe.first_news_at, pe.last_news_at,
              CASE WHEN
                EXISTS (
@@ -496,6 +514,7 @@ export class D1PolicyNewsRepository implements PolicyNewsRepository {
       title: row.title,
       summary: row.summary,
       category: row.category,
+      importance: row.importance,
       departments: parseDepartments(row.departments_json),
       policyDate: row.policy_date,
       firstNewsAt: row.first_news_at,
@@ -569,14 +588,15 @@ export class D1PolicyNewsRepository implements PolicyNewsRepository {
         updatedPolicies += 1;
         statements.push(this.database.prepare(`
           UPDATE policy_event
-          SET title = ?, summary = ?, category = ?, departments_json = ?,
-              policy_date = ?, first_news_at = ?, last_news_at = ?,
+          SET title = ?, summary = ?, category = ?, importance = ?,
+              departments_json = ?, policy_date = ?, first_news_at = ?, last_news_at = ?,
               updated_at = ?
           WHERE id = ?
         `).bind(
           group.title,
           group.summary,
           group.category,
+          group.importance,
           JSON.stringify(departments),
           policyDate,
           firstNewsAt,
@@ -588,14 +608,15 @@ export class D1PolicyNewsRepository implements PolicyNewsRepository {
         newPolicies += 1;
         statements.push(this.database.prepare(`
           INSERT INTO policy_event (
-            id, title, summary, category, departments_json, policy_date,
+            id, title, summary, category, importance, departments_json, policy_date,
             first_news_at, last_news_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(
           policyId,
           group.title,
           group.summary,
           group.category,
+          group.importance,
           JSON.stringify(departments),
           policyDate,
           firstNewsAt,
@@ -672,7 +693,8 @@ export class D1PolicyNewsRepository implements PolicyNewsRepository {
     if (policyIds.length === 0) return new Map();
     const placeholders = policyIds.map(() => "?").join(", ");
     const result = await this.database.prepare(`
-      SELECT pe.id, pe.title, pe.summary, pe.category, pe.departments_json, pe.policy_date,
+      SELECT pe.id, pe.title, pe.summary, pe.category, pe.importance,
+             pe.departments_json, pe.policy_date,
              pe.first_news_at, pe.last_news_at,
              CASE WHEN
                EXISTS (
@@ -759,7 +781,7 @@ export class D1PolicyAssociationRepository {
 
   private async queryPolicies(where: string, bindings: string[]): Promise<ExistingPolicy[]> {
     const result = await this.database.prepare(`
-      SELECT id, title, summary, category, departments_json, policy_date,
+      SELECT id, title, summary, category, importance, departments_json, policy_date,
              first_news_at, last_news_at
       FROM policy_event
       WHERE ${where}
@@ -785,6 +807,7 @@ export class D1PolicyAssociationRepository {
       title: row.title,
       summary: row.summary,
       category: row.category,
+      importance: row.importance,
       departments: parseDepartments(row.departments_json),
       policyDate: row.policy_date,
       firstNewsAt: row.first_news_at,

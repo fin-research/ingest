@@ -168,6 +168,7 @@ describe("policy package aggregation", () => {
           title: "828房地产政策",
           summary: "多部门于8月28日集中发布房地产信贷、融资、资本市场和商品住房销售配套制度，共同推动构建房地产发展新模式。",
           category: "real_estate",
+          importance: "related",
           departments: ["中国人民银行", "国家金融监督管理总局", "中国证监会", "住房城乡建设部"],
           policyDate: "2026-08-28",
           newsIds: evidence.map((item) => item.id),
@@ -188,7 +189,17 @@ describe("policy package aggregation", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]?.prompt_cache_key).toBe(`policy-tracking:${POLICY_PROMPT_VERSION}`);
     expect(requests[0]?.instructions).toContain("按“政策事件/政策包”而不是按“文件篇数”聚合");
+    expect(requests[0]?.instructions).toContain("中国境内资金面、货币市场和利率");
+    expect(requests[0]?.instructions).toContain("中国人民银行的货币政策");
+    expect(requests[0]?.instructions).toContain("中央政治局会议");
+    expect(requests[0]?.instructions).toContain("单纯的财政政策、产业政策");
     for (const title of titles) expect(requests[0]?.instructions).toContain(title);
+    const format = (requests[0]?.text as {
+      format: { schema: { properties: { groups: { items: { properties: Record<string, unknown> } } } } };
+    }).format;
+    expect(format.schema.properties.groups.items.properties).toMatchObject({
+      importance: { type: "string", enum: ["important", "related", "general"] },
+    });
     const input = requests[0]?.input as Array<{ content: string }>;
     const prompt = JSON.parse(input[0]?.content ?? "null") as {
       pendingNews: Array<{ publishedDateShanghai: string }>;
@@ -226,6 +237,7 @@ describe("policy package aggregation", () => {
           title: "828房地产政策",
           summary: "多部门于8月28日集中发布房地产信贷、融资、资本市场和住房销售制度，共同推动构建房地产发展新模式。",
           category: "real_estate",
+          importance: "related",
           departments: ["中国人民银行", "国家金融监督管理总局", "中国证监会", "住房城乡建设部"],
           policyDate: "2026-08-28",
           newsIds: [],
@@ -236,6 +248,7 @@ describe("policy package aggregation", () => {
           title: "另一项中央政策安排",
           summary: "该项中央政策具有独立的政策目标、发布安排和实施内容，应当单独建立政策事件卡片。",
           category: "other",
+          importance: "general",
           departments: ["国务院有关部门"],
           policyDate: "2026-09-02",
           newsIds: ["other-news"],
@@ -344,6 +357,7 @@ describe("policy package aggregation", () => {
           title: "828房地产政策",
           summary: "多部门于8月28日集中发布房地产信贷、资本市场和销售制度安排，共同推动构建房地产发展新模式。",
           category: "real_estate",
+          importance: "related",
           departments: ["住房城乡建设部"],
           policyDate: "2026-08-28",
           newsIds: ["test-pending-news"],
@@ -364,15 +378,17 @@ describe("policy package aggregation", () => {
       "SELECT COUNT(*) AS count FROM policy_event WHERE id = ?",
     ).bind(fragmentId).first<number>("count")).toBe(0);
     const canonical = await env.DB.prepare(`
-      SELECT title, departments_json, first_news_at, last_news_at
+      SELECT title, importance, departments_json, first_news_at, last_news_at
       FROM policy_event WHERE id = ?
     `).bind(canonicalId).first<{
       title: string;
+      importance: string;
       departments_json: string;
       first_news_at: string;
       last_news_at: string;
     }>();
     expect(canonical?.title).toBe("828房地产政策");
+    expect(canonical?.importance).toBe("related");
     expect(JSON.parse(canonical?.departments_json ?? "[]")).toEqual([
       "住房城乡建设部",
       "中国证监会",
@@ -407,6 +423,7 @@ describe("policy package aggregation", () => {
           title: "828房地产政策",
           summary: "多部门集中发布房地产政策，但人工维护的卡片不能作为自动合并后删除的来源卡片。",
           category: "real_estate",
+          importance: "related",
           departments: ["中国人民银行"],
           policyDate: "2026-08-28",
           newsIds: ["828-follow-up"],
@@ -582,6 +599,7 @@ function policyCandidate(
     title,
     summary: `${title}的政策事实摘要，用于验证已有政策碎片的合并逻辑。`,
     category: "real_estate",
+    importance: "related",
     departments: ["中国人民银行"],
     policyDate: "2026-08-28",
     firstNewsAt: "2026-08-28T17:00:00+08:00",
@@ -604,7 +622,7 @@ function responsesOutput(value: unknown): Response {
 
 async function createPolicyMergeTestTables(): Promise<void> {
   await env.DB.batch([
-    env.DB.prepare("CREATE TABLE IF NOT EXISTS policy_event (id TEXT PRIMARY KEY, title TEXT NOT NULL, summary TEXT NOT NULL, category TEXT NOT NULL, departments_json TEXT NOT NULL, policy_date TEXT NOT NULL, first_news_at TEXT NOT NULL, last_news_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS policy_event (id TEXT PRIMARY KEY, title TEXT NOT NULL, summary TEXT NOT NULL, category TEXT NOT NULL, importance TEXT NOT NULL DEFAULT 'general' CHECK (importance IN ('important', 'related', 'general')), departments_json TEXT NOT NULL, policy_date TEXT NOT NULL, first_news_at TEXT NOT NULL, last_news_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS policy_news (sentiment_id TEXT PRIMARY KEY, policy_id TEXT, title TEXT NOT NULL, published_at TEXT NOT NULL, content TEXT, link TEXT, aggregation_status TEXT NOT NULL, workflow_instance_id TEXT, discovered_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS article (id TEXT PRIMARY KEY, title TEXT NOT NULL, published_at TEXT NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS policy_article (policy_id TEXT NOT NULL, article_id TEXT NOT NULL, relation_status TEXT NOT NULL, association_method TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (policy_id, article_id))"),
