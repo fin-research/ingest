@@ -92,6 +92,7 @@ node scripts/migrate-research.ts cleanup --apply
 研报目标为 `report/原日期/原文件名`，政策目标为 `policy/上海日期/标题.md`。copy 先比较目标正文，拒绝覆盖不同内容；清理前要求 `research` 全部目标已索引并服务 `search.hasbai.xyz`，随后 Workflow 再逐项比对正文和元数据后删除旧研报路径。D1 政策原文与本地备份保留。
 
 `verify-index` 单独记录 Cloudflare 状态未刷新的情况：仅对 `running`、正文版本和元数据均已匹配且不超过 50 个块的条目，实际执行向量检索，逐一核对全部块 ID、向量分数及业务元数据，并再次确认源版本未变化。完整覆盖才通过验收，同时保存 `vector-proof-*.json` 和 `pendingStatusWithVectorProof`；缺块、版本变化或 `error` 状态仍阻止清理，不将这类条目伪报为 `completed`。
+重复验收可在 Item ID、来源、索引版本、R2 key 和正文 ETag 均不变时复用已保存的完整块 ID 清单；实际向量检索和源版本核对每次重新执行，不复用搜索结果。
 
 旧 `migrate-ai-search-r2.ts` 命令仅用于历史无前缀目录回填；research 迁移开始后不得对已迁移清单重跑旧回填或清理。
 

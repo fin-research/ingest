@@ -156,7 +156,17 @@ async function verify(index: boolean) {
       const item = indexed.get(object.key);
       const issues = indexVerificationIssues(item, object);
       if (item && issues.length === 1 && issues[0] === "running" && typeof item.chunks_count === "number" && item.chunks_count <= 50) {
-        const chunks = z.array(indexChunkSchema).parse((await json(`${targetPath}/items/${item.id}/chunks?limit=50`)).result);
+        const proofName = `vector-proof-${item.id}.json`;
+        let chunks: z.infer<typeof indexChunkSchema>[] | undefined;
+        // Chunk IDs are immutable within the same item/source version. Reuse
+        // their saved inventory; always repeat vector retrieval and info checks.
+        if (await exists(file(proofName))) {
+          const previous = z.object({ item: itemSchema, object: objectSchema, chunks: z.array(indexChunkSchema) })
+            .parse(JSON.parse(await readFile(file(proofName), "utf8")));
+          if (previous.item.id === item.id && previous.item.source_id === item.source_id && previous.item.checksum === item.checksum &&
+            previous.object.key === object.key && previous.object.etag === object.etag) chunks = previous.chunks;
+        }
+        chunks ??= z.array(indexChunkSchema).parse((await json(`${targetPath}/items/${item.id}/chunks?limit=50`)).result);
         const search = await json(`${targetPath}/search`, "POST", {
           query: object.key.split("/").at(-1)?.replace(/\.md$/, ""),
           ai_search_options: { retrieval: { retrieval_type: "vector", match_threshold: 0, max_num_results: 50, return_on_failure: false,
@@ -166,7 +176,7 @@ async function verify(index: boolean) {
         const retrieved = z.object({ chunks: z.array(indexChunkSchema) }).parse(search.result).chunks;
         const refreshed = itemSchema.parse((await json(`${targetPath}/items/${item.id}`)).result);
         if (hasCompleteVectorCoverage(item, refreshed, object, chunks, retrieved)) {
-          await save(`vector-proof-${item.id}.json`, { item, refreshed, object, chunks, retrieved });
+          await save(proofName, { checkedAt: new Date().toISOString(), item, refreshed, object, chunks, retrieved });
           pendingStatusWithVectorProof.push({ id: item.id, key: item.key, chunks: chunks.length });
           issues.pop();
         }
