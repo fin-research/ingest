@@ -4,7 +4,7 @@
 
 纯 TypeScript Cloudflare Worker。Cron 在工作日北京时间 08:00–18:00 每 5 分钟读取 `市场解读` 文章和 `中央政策` 资讯；新增研报进入 `ArticleWorkflow` 完成正文获取、AI 特征抽取、D1 元数据、R2 归档和政策关联；AI Search 独立同步 R2 数据源，新增政策资讯进入 `PolicyWorkflow` 自动归并为政策卡片。
 
-运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、Workflow `article`、R2 `article`、AI Search `research`（`finance` binding 仅保留历史维护用途）。
+运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、Workflow `article`、R2 `article`、AI Search `research`。AI Search binding 仅供索引维护，业务正文只通过 R2 数据源索引。
 
 ## Repository Structure
 

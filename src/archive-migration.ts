@@ -58,11 +58,13 @@ export function sameArticleContent(left: string, right: string): boolean {
 }
 
 /** Manually triggered maintenance only; never called by Cron or ArticleWorkflow. */
-export class ArticleArchiveMigrationWorkflow extends WorkflowEntrypoint<Env, ArchiveMigrationParams> {
+export class ArticleArchiveMigrationWorkflow extends WorkflowEntrypoint<Env & { FINANCE_SEARCH?: AiSearchInstance }, ArchiveMigrationParams> {
   override async run(event: Readonly<WorkflowEvent<ArchiveMigrationParams>>, step: WorkflowStep) {
     if ("migration" in event.payload) return event.payload.migration === "research-index-retry"
       ? await retryResearchIndex(this.env, event.payload, step)
       : await runResearchMigration(this.env, event.payload, step);
+    const finance = this.env.FINANCE_SEARCH;
+    if (!finance) throw new NonRetryableError("Legacy finance import is retired; use the research migration modes");
     const params = paramsSchema.parse(event.payload);
     const results = [];
     for (const entry of params.items) {
@@ -71,7 +73,7 @@ export class ArticleArchiveMigrationWorkflow extends WorkflowEntrypoint<Env, Arc
         retries: { limit: 3, delay: "10 seconds", backoff: "exponential" },
         timeout: "2 minutes",
       }, async () => {
-        const item = this.env.FINANCE_SEARCH.items.get(entry.itemId);
+        const item = finance.items.get(entry.itemId);
         const info = await item.info();
         if (info.source_id !== "builtin" || info.key !== entry.key) {
           throw new NonRetryableError("Migration item no longer matches the manifest");
