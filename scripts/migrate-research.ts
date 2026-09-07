@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { createMaintenanceClient, HttpError, objectSchema, bodyBytes, indexVerificationIssues } from "./cloudflare-maintenance.ts";
+import { createMaintenanceClient, HttpError, itemSchema, objectSchema, bodyBytes, indexVerificationIssues, indexChunkSchema, hasCompleteVectorCoverage } from "./cloudflare-maintenance.ts";
 import { POLICY_ARCHIVE_QUERY, policyArchiveDocument, storedPolicySchema } from "../src/policy-archive.ts";
 import { prepareAiSearchMarkdown } from "../src/article.ts";
 import type { ResearchMigrationParams } from "../src/research-migration.ts";
@@ -136,6 +136,7 @@ async function verify(index: boolean) {
   const objects = await listObjects();
   const byKey = new Map(objects.map(value => [value.key, value]));
   const failures: string[] = [];
+  const pendingStatusWithVectorProof: Array<{ id: string; key: string; chunks: number }> = [];
   const expected = [
     ...await Promise.all(data.reports.map(async value => ({
       key: `report/${value.key}`,
@@ -154,11 +155,27 @@ async function verify(index: boolean) {
     for (const object of objects.filter(value => /^(report|policy)\//.test(value.key))) {
       const item = indexed.get(object.key);
       const issues = indexVerificationIssues(item, object);
+      if (item && issues.length === 1 && issues[0] === "running" && typeof item.chunks_count === "number" && item.chunks_count <= 50) {
+        const chunks = z.array(indexChunkSchema).parse((await json(`${targetPath}/items/${item.id}/chunks?limit=50`)).result);
+        const search = await json(`${targetPath}/search`, "POST", {
+          query: object.key.split("/").at(-1)?.replace(/\.md$/, ""),
+          ai_search_options: { retrieval: { retrieval_type: "vector", match_threshold: 0, max_num_results: 50, return_on_failure: false,
+            filters: { type: { $eq: object.custom_metadata?.type }, published_at: { $eq: Number(item.metadata?.published_at) },
+              ...(object.custom_metadata?.source ? { source: { $eq: object.custom_metadata.source } } : {}) } } },
+        });
+        const retrieved = z.object({ chunks: z.array(indexChunkSchema) }).parse(search.result).chunks;
+        const refreshed = itemSchema.parse((await json(`${targetPath}/items/${item.id}`)).result);
+        if (hasCompleteVectorCoverage(item, refreshed, object, chunks, retrieved)) {
+          await save(`vector-proof-${item.id}.json`, { item, refreshed, object, chunks, retrieved });
+          pendingStatusWithVectorProof.push({ id: item.id, key: item.key, chunks: chunks.length });
+          issues.pop();
+        }
+      }
       if (issues.length) failures.push(`index: ${object.key} (${issues.join(", ")})`);
     }
     await save("indexed-items.json", items);
   }
-  await save(index ? "index-verification.json" : "archive-verification.json", { checkedAt: new Date().toISOString(), reports: data.reports.length, policies: data.policies.length, failures });
-  console.log(JSON.stringify({ reports: data.reports.length, policies: data.policies.length, failures: failures.length }));
+  await save(index ? "index-verification.json" : "archive-verification.json", { checkedAt: new Date().toISOString(), reports: data.reports.length, policies: data.policies.length, failures, pendingStatusWithVectorProof });
+  console.log(JSON.stringify({ reports: data.reports.length, policies: data.policies.length, failures: failures.length, pendingStatusWithVectorProof: pendingStatusWithVectorProof.length }));
   if (failures.length) throw new Error(`Verification failed; see ${index ? "index" : "archive"}-verification.json`);
 }

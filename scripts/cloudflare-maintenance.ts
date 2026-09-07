@@ -6,6 +6,31 @@ export const itemSchema = z.object({
 }).passthrough();
 type Item = z.infer<typeof itemSchema>;
 export const objectSchema = z.object({ key: z.string(), etag: z.string(), size: z.number(), custom_metadata: z.record(z.string(), z.string()).optional() }).passthrough();
+export const indexChunkSchema = z.object({
+  id: z.string(), item: z.object({ key: z.string(), metadata: z.record(z.string(), z.unknown()).optional() }),
+  scoring_details: z.object({ vector_score: z.number().optional() }).optional(),
+});
+
+// A provider may leave an item running after every vector is queryable. Accept
+// that state only with complete chunk coverage and an unchanged source version.
+export function hasCompleteVectorCoverage(item: Item, refreshed: Item, object: z.infer<typeof objectSchema>,
+  expected: z.infer<typeof indexChunkSchema>[], retrieved: z.infer<typeof indexChunkSchema>[]): boolean {
+  const issues = indexVerificationIssues(item, object);
+  if (issues.length !== 1 || issues[0] !== "running" || item.source_id !== "r2:article" || item.key !== object.key) return false;
+  if (refreshed.id !== item.id || refreshed.key !== item.key || refreshed.source_id !== item.source_id ||
+    refreshed.checksum !== item.checksum || refreshed.chunks_count !== item.chunks_count ||
+    indexVerificationIssues(refreshed, object).some(issue => issue !== "running")) return false;
+  const count = item.chunks_count;
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > 50 || expected.length !== count ||
+    new Set(expected.map(chunk => chunk.id)).size !== count || expected.some(chunk => chunk.item.key !== item.key)) return false;
+  const matching = new Set(retrieved.filter(chunk => {
+    if (chunk.item.key !== item.key || !Number.isFinite(chunk.scoring_details?.vector_score)) return false;
+    if (Number(chunk.item.metadata?.published_at) !== Date.parse(object.custom_metadata?.published_at ?? "")) return false;
+    return ["type", "source", "tags", "importance"].every(field =>
+      !object.custom_metadata?.[field] || String(chunk.item.metadata?.[field]) === object.custom_metadata[field]);
+  }).map(chunk => chunk.id));
+  return expected.every(chunk => matching.has(chunk.id));
+}
 
 export function indexVerificationIssues(item: Item | undefined, object: z.infer<typeof objectSchema>): string[] {
   if (!item) return ["missing"];
