@@ -1,5 +1,4 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
-import { NonRetryableError } from "cloudflare:workflows";
 
 import {
   articleObjectKey,
@@ -10,11 +9,9 @@ import {
   validateArticleDetail,
   validateArticleMetadata,
 } from "./article";
-import { uploadAndWaitForAiSearch } from "./ai-search";
 import { generateAiGatewayObject } from "./ai-gateway";
 import {
   ARTICLE_FEATURE_PROMPT_VERSION,
-  buildAiSearchMetadata,
   buildR2Metadata,
   extractArticleFeatures,
   saveArticleFeatures,
@@ -38,9 +35,6 @@ import {
   type TelegramWorkflowParams,
 } from "./telegram";
 import { isWechatArticleLink, resolveArticleContent } from "./wechat";
-
-export const AI_SEARCH_POLL_TIMEOUT_MS = 8 * 60 * 1000;
-export const AI_SEARCH_POLL_INTERVAL_MS = 15_000;
 
 export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
   override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {
@@ -127,7 +121,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
       "store article in R2",
       { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
       async () => {
-        const object = await this.env.ARTICLE_BUCKET.put(key, markdown, {
+        const object = await this.env.ARTICLE_BUCKET.put(key, prepareAiSearchMarkdown(markdown), {
           httpMetadata: { contentType: "text/markdown; charset=utf-8" },
           customMetadata: buildR2Metadata(extracted, article.publishedAt),
         });
@@ -136,41 +130,8 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
       },
     );
 
-    return await step.do(
-      "store article in AI Search",
-      {
-        retries: { limit: 5, delay: "15 seconds", backoff: "exponential" },
-        timeout: "10 minutes",
-      },
-      async () => {
-        const object = await this.env.ARTICLE_BUCKET.get(archived.key);
-        if (!object || !object.body) throw new Error(`R2 object not found: ${archived.key}`);
-        const markdown = prepareAiSearchMarkdown(await object.text());
-        const item = await uploadAndWaitForAiSearch(
-          this.env.FINANCE_SEARCH.items,
-          archived.key,
-          markdown,
-          {
-            metadata: buildAiSearchMetadata(extracted, article.publishedAt),
-            timeoutMs: AI_SEARCH_POLL_TIMEOUT_MS,
-            pollIntervalMs: AI_SEARCH_POLL_INTERVAL_MS,
-            fileContentEmptyRetries: 1,
-            transientErrorRetries: 2,
-          },
-        );
-        if (item.status === "error" && item.error === "file_content_empty") {
-          throw new NonRetryableError(
-            `AI Search indexing did not complete for ${archived.key}: file_content_empty`,
-          );
-        }
-        if (item.status !== "completed") {
-          throw new Error(
-            `AI Search indexing did not complete for ${archived.key}: ${item.error || item.status}`,
-          );
-        }
-        return { key: archived.key, itemId: item.id, status: item.status };
-      },
-    );
+    // The external R2 source is indexed asynchronously by AI Search.
+    return { ...archived, status: "archived", indexing: "r2-source" };
   }
 }
 

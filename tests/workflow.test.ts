@@ -4,23 +4,13 @@ import { env } from "cloudflare:workers";
 import { introspectWorkflowInstance } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
-import {
-  AI_SEARCH_POLL_INTERVAL_MS,
-  AI_SEARCH_POLL_TIMEOUT_MS,
-} from "../src/index";
-
 declare module "cloudflare:workers" {
   interface ProvidedEnv extends Env {}
 }
 
 describe("article workflow steps", () => {
-  it("keeps AI Search polling below the per-invocation subrequest limit", () => {
-    const maximumStatusChecks = Math.ceil(
-      AI_SEARCH_POLL_TIMEOUT_MS / AI_SEARCH_POLL_INTERVAL_MS,
-    );
-
-    // Reserve requests for the initial lookup/upload and bounded error recovery.
-    expect(maximumStatusChecks + 10).toBeLessThanOrEqual(50);
+  it("archives without an AI Search binding", () => {
+    expect("FINANCE_SEARCH" in env).toBe(false);
   });
 
   it("runs WeChat processing as a separate step after downloading DM detail", async () => {
@@ -62,14 +52,6 @@ describe("article workflow steps", () => {
           { name: "associate article with recent policies" },
           { evaluatedPolicies: 0, evaluatedArticles: 1, matches: 0 },
         );
-        await modifier.mockStepResult(
-          { name: "store article in R2" },
-          { key: "2026-08-12/测试文章.md", etag: "etag-1", size: 32 },
-        );
-        await modifier.mockStepResult(
-          { name: "store article in AI Search" },
-          { key: "2026-08-12/测试文章.md", itemId: "item-1", status: "completed" },
-        );
       });
 
       await env.ARTICLE_WORKFLOW.create({
@@ -88,6 +70,19 @@ describe("article workflow steps", () => {
       await expect(
         instance.waitForStepResult({ name: "extract article features with Responses API" }),
       ).resolves.toMatchObject({ importance: 60 });
+      const archived = await env.ARTICLE_BUCKET.get("2026-08-12/测试文章.md");
+      expect(await archived?.text()).toBe("# 测试文章\n\n公众号正文。 \n");
+      expect(archived?.customMetadata).toMatchObject({
+        source: "测试机构",
+        tags: "货币政策预期",
+        published_at: "2026-08-12T01:00:00.000Z",
+      });
+      const workflow = await env.ARTICLE_WORKFLOW.get(instanceId);
+      expect((await workflow.status()).output).toMatchObject({
+        status: "archived",
+        indexing: "r2-source",
+        key: "2026-08-12/测试文章.md",
+      });
     } finally {
       await instance.dispose();
     }

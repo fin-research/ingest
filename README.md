@@ -8,9 +8,9 @@
 2. Workflow 获取正文；微信公众号优先直连下载，失败时回退 DM 正文。
 3. 通过 AI Gateway Responses API 抽取作者、摘要、重要性和权益/利率债关键词；优先 `custom-opencode`，失败时回退 `custom-codex`。
 4. 把元数据和关键词写入 D1，把 Markdown 正文归档到 R2。
-5. 从 R2 读取同一对象并写入 AI Search，等待最终索引结果。
+5. AI Search 通过 R2 数据源自动同步文章；Workflow 在 R2 归档完成后结束，索引状态独立检查。
 
-D1 不保存正文。R2 和 AI Search 使用相同的 `yyyy-mm-dd/标题.md` key。
+D1 不保存正文。正文只写 R2，写入前应用中文标点补空格兼容处理；R2 和 AI Search 使用相同的 `yyyy-mm-dd/标题.md` key。同步间隔设置为 15 分钟，归档完成不代表索引已完成。
 
 ## 本地验证
 

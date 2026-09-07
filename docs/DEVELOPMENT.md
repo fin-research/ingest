@@ -40,6 +40,23 @@ pnpm exec wrangler r2 bucket info article
 
 迁移前需保存完整 Item 清单、原始正文及原 R2 对象备份。先回填，再等待 R2 来源索引全部 `completed`、检查原始发布日期过滤和检索内容，最后才允许清理内置副本。数据源连接是否生效，以同步任务实际生成 R2 来源 Item 为准。
 
+维护 CLI 使用 Node 24+，默认复用本机 Wrangler OAuth 登录，也可通过 `CLOUDFLARE_API_TOKEN` 环境变量提供凭证；不把 token 放进命令行参数。所有清单、正文备份和检查结果写入 `var/ai-search-r2/`：
+
+```bash
+node scripts/migrate-ai-search-r2.ts inventory
+node scripts/migrate-ai-search-r2.ts backup
+node scripts/migrate-ai-search-r2.ts copy --apply --limit 1
+node scripts/migrate-ai-search-r2.ts copy --apply
+node scripts/migrate-ai-search-r2.ts verify --target finance-r2
+node scripts/migrate-ai-search-r2.ts cleanup --target finance-r2 --apply
+```
+
+- `--target` 指定已连接 R2 的验收目标，默认 `finance`；配置保存成功不能代替真实来源检查。
+- `copy` 只启动有本地正文备份的批次；实例 ID 由清单稳定派生，重复运行不重复提交。每步条件写入并检查 ETag 和元数据。
+- 如人工比对确认已有 R2 是完整研报、builtin 只是摘要，在对应清单项加入 `preferExistingEtag`，并在备份目录记录审核理由。此例外仅在当前 R2 ETag 精确匹配时生效。
+- `verify` 同时核对每个 R2 key 的来源、最终状态、正文 checksum、原始发布日期和检索字段。迁移期间 Cron 新产生的数据须追加盘点、备份与回填。
+- `cleanup` 仅在目标仍服务 `search.hasbai.xyz`、全部 R2 索引已验证且源正文仍匹配本地备份时，才逐项删除旧 builtin Item；不删除 R2 或实例。
+
 ## Git 与发布
 
 - 仓库默认分支为 `main`；开始前检查工作区并保留用户已有改动。

@@ -51,9 +51,11 @@ DM detail
  → AI feature extraction
  → D1 article + keyword
  → AI match against policies from the previous 14 days
- → R2 Markdown
- → read same R2 object
- → AI Search upload and final status polling
+ → prepare Chinese punctuation spacing
+ → R2 Markdown + search metadata
+ → Workflow archived
+
+AI Search scheduled sync (15 minutes) → R2 article → independent indexing status
 ```
 
 - DM 详情步骤幂等更新原文 link。
@@ -62,8 +64,10 @@ DM detail
 - 特征与关键词在一次 D1 `batch()` 中覆盖。
 - 自动研报关系只使用 article 的标题、摘要、机构和结构化关键词。研报触发时，一篇研报与其全部候选政策在一次模型调用中判断，Schema 以政策 ID 为键且每项只包含 `related` 布尔值；政策触发时，每个政策与其全部候选研报同样在一次调用中判断，Schema 改以研报 ID 为键。仅保存判断为直接相关的关系，人工 `linked` / `excluded` 决定不被后续 AI upsert 覆盖。
 - 政策聚合以共同改革目标和集中发布安排为上位口径：同一政策包可包含不同部门、不同文件和不同政策工具；只有宽泛行业主题相同不能合并。近期碎片卡片可自动归并到总览卡片，但含人工研报关系或研究点评的卡片不得作为被合并来源。
-- R2 与 AI Search 按同 key 幂等；AI Search 必须等待 `completed`，`running` 不是成功。
-- `file_content_empty` 在既定重试后仍失败时成为不可重试错误，保留可诊断状态。
+- 正文仅按稳定 key 幂等写 R2；`source`、`tags`、`importance`、`published_at` 与归档元数据一并写入。AI Search 数据源配置保留原有五字段 Schema，按原始 `published_at` 过滤，不以迁移时间代替发布日期。
+- ArticleWorkflow 返回 `status: archived` / `indexing: r2-source`；索引完成必须独立检查 `completed`。
+- R2 原始中文 Markdown 仍可能触发 `file_content_empty`，因此复用 `prepareAiSearchMarkdown` 在唯一一次存储前处理标点，AI 特征抽取仍使用原文。
+- `ArticleArchiveMigrationWorkflow` 只由维护 CLI 手动启动，从旧 builtin Item 回填 R2，不由 Cron 调用，不写 D1、不删除源文件。
 
 ## 依赖规则
 

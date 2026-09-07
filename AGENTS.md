@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-纯 TypeScript Cloudflare Worker。Cron 在工作日北京时间 08:00–18:00 每 5 分钟读取 `市场解读` 文章和 `中央政策` 资讯；新增研报进入 `ArticleWorkflow` 完成正文获取、AI 特征抽取、D1 元数据、R2 归档、AI Search 索引和政策关联，新增政策资讯进入 `PolicyWorkflow` 自动归并为政策卡片。
+纯 TypeScript Cloudflare Worker。Cron 在工作日北京时间 08:00–18:00 每 5 分钟读取 `市场解读` 文章和 `中央政策` 资讯；新增研报进入 `ArticleWorkflow` 完成正文获取、AI 特征抽取、D1 元数据、R2 归档和政策关联；AI Search 独立同步 R2 数据源，新增政策资讯进入 `PolicyWorkflow` 自动归并为政策卡片。
 
 运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、Workflow `article`、R2 `article`、AI Search `finance`。
 
@@ -14,7 +14,9 @@
 - `src/policy.ts`：中央政策队列认领、AI 聚合、双向研报关联和 D1 写入。
 - `src/wechat.ts`：公众号直连下载、Markdown 转换和风险披露清洗。
 - `src/feature-extraction.ts`：结构化特征 Schema、Prompt 和 D1 写入。
-- `src/ai-gateway.ts`、`src/ai-search.ts`：AI Gateway 与 AI Search 适配器。
+- `src/ai-gateway.ts`：AI Gateway 适配器；`src/ai-search.ts` 保留历史上传适配器及回归测试。
+- `src/archive-migration.ts`：仅手动触发的存量回填 Workflow，使用旧 AI Search binding 读取 builtin Item。
+- `scripts/migrate-ai-search-r2.ts`：一次性维护 CLI，盘点、备份、提交回填批次、验收与清理；正文与凭证不得提交。
 - `migrations/`：D1 migration。
 - `tests/`：Vitest / Workers runtime 测试。
 
@@ -30,8 +32,8 @@
 - 每轮 D1 批量查重；重复轮询不得更新已有记录。新增项一次 `batch()` 写入，Workflow 批量启动失败时删除本轮新增去重行以便重试。
 - Workflow 步骤必须幂等，所有 Promise 必须 await。公众号直连失败时回退 DM 正文。
 - 政策与研报关联使用双向增量触发：政策落库时匹配已有研报，研报特征落库时匹配近期政策；人工关联或排除优先于 AI，后续自动任务不得覆盖。
-- 正文不写 D1。D1 只保存文章元数据、结构化特征和关键词；R2 保存未经 AI Search 标点兼容修复的 Markdown。
-- R2 与 AI Search key 固定为 `yyyy-mm-dd/标题.md`。中文标点补空格只能在写 AI Search 前应用。
+- 正文不写 D1。D1 只保存文章元数据、结构化特征和关键词；R2 保存用于直接索引的 Markdown，写入前统一应用既有中文标点补空格兼容处理。
+- R2 与 AI Search key 固定为 `yyyy-mm-dd/标题.md`。正文只写 R2；AI Search 通过 R2 数据源异步索引，ArticleWorkflow 不再上传 builtin Item 或等待索引状态。
 - 生成式 AI 只通过 `src/ai-gateway.ts` 调用自定义 Provider 的原生 Responses API；固定优先 `custom-opencode`，可重试失败时回退 `custom-codex`，`dynamic/rag` 只保留在项目组 `AI.md` 作为历史兼容路线。Zod Schema 是结构化输出唯一来源，应用端必须校验，输入和有效输出不得截断。
 - 外部 API 响应必须限长读取并做运行时校验；不得直接断言为业务类型。
 - Cloudflare 资源优先使用 binding；自定义 Provider Responses 必须使用 provider-specific Gateway URL，不能使用会进入 Universal 适配层的 AI binding `run()`。AI Gateway token 只使用 Worker Secret `CF_AIG_TOKEN`。
