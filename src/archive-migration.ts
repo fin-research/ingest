@@ -4,7 +4,7 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloud
 import { NonRetryableError } from "cloudflare:workflows";
 import { z } from "zod";
 import { prepareAiSearchMarkdown } from "./article";
-import { runResearchMigration, type ResearchMigrationParams } from "./research-migration";
+import { runResearchMigration, retryResearchIndex, type ResearchMigrationParams, type ResearchIndexRetryParams } from "./research-migration";
 
 const entrySchema = z.object({
   itemId: z.string().regex(/^[a-f0-9]{32}$/),
@@ -13,7 +13,7 @@ const entrySchema = z.object({
   preferExistingEtag: z.string().regex(/^[a-f0-9]{32}$/).optional(),
 }).strict();
 const paramsSchema = z.object({ items: z.array(entrySchema).min(1).max(50) }).strict();
-export type ArchiveMigrationParams = z.infer<typeof paramsSchema> | ResearchMigrationParams;
+export type ArchiveMigrationParams = z.infer<typeof paramsSchema> | ResearchMigrationParams | ResearchIndexRetryParams;
 
 // Only existing archive aliases are accepted: Items uploads historically escaped
 // quotes in filenames. Never silently change arbitrary object paths.
@@ -60,7 +60,9 @@ export function sameArticleContent(left: string, right: string): boolean {
 /** Manually triggered maintenance only; never called by Cron or ArticleWorkflow. */
 export class ArticleArchiveMigrationWorkflow extends WorkflowEntrypoint<Env, ArchiveMigrationParams> {
   override async run(event: Readonly<WorkflowEvent<ArchiveMigrationParams>>, step: WorkflowStep) {
-    if ("migration" in event.payload) return await runResearchMigration(this.env, event.payload, step);
+    if ("migration" in event.payload) return event.payload.migration === "research-index-retry"
+      ? await retryResearchIndex(this.env, event.payload, step)
+      : await runResearchMigration(this.env, event.payload, step);
     const params = paramsSchema.parse(event.payload);
     const results = [];
     for (const entry of params.items) {

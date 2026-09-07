@@ -75,6 +75,11 @@
   ],
   "ai_search": [
     {
+      "binding": "RESEARCH_SEARCH",
+      "instance_name": "research",
+      "remote": true
+    },
+    {
       "binding": "FINANCE_SEARCH",
       "instance_name": "finance",
       "remote": true

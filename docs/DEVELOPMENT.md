@@ -90,3 +90,5 @@ node scripts/migrate-research.ts cleanup --apply
 研报目标为 `report/原日期/原文件名`，政策目标为 `policy/上海日期/标题.md`。copy 先比较目标正文，拒绝覆盖不同内容；清理前要求 `research` 全部目标已索引并服务 `search.hasbai.xyz`，随后 Workflow 再逐项比对正文和元数据后删除旧研报路径。D1 政策原文与本地备份保留。
 
 旧 `migrate-ai-search-r2.ts` 命令仅用于历史无前缀目录回填；research 迁移开始后不得对已迁移清单重跑旧回填或清理。
+
+`research-index-retry` 维护参数 `{ migration: "research-index-retry", itemIds: [...] }` 每批最多 10 个 ID，仅对 `research` 中 `r2:article` 来源且位于 `report/`、`policy/` 的失败 Item 调用绑定的 `sync()`；不上传正文、不删除对象。重试前读取 Item logs 区分源文件问题和平台临时故障，重试后仍须独立核对最终状态。`RESEARCH_SEARCH` binding 仅供该维护路径使用，业务工作流仍只归档 R2。

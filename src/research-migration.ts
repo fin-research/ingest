@@ -17,6 +17,29 @@ export const researchMigrationSchema = z.object({
   value.reports.length + value.policies.length <= 25 &&
   (value.action !== "cleanup" || value.policies.length === 0), "Invalid migration batch");
 export type ResearchMigrationParams = z.infer<typeof researchMigrationSchema>;
+const researchIndexRetrySchema = z.object({
+  migration: z.literal("research-index-retry"),
+  itemIds: z.array(z.string().regex(/^[a-f0-9]{32}$/)).min(1).max(10),
+}).strict();
+export type ResearchIndexRetryParams = z.infer<typeof researchIndexRetrySchema>;
+
+export async function retryResearchIndex(env: Env, payload: ResearchIndexRetryParams, step: WorkflowStep) {
+  const params = researchIndexRetrySchema.parse(payload);
+  const items = [];
+  for (const id of params.itemIds) {
+    items.push(await step.do(`retry-index-${id}`, async () => {
+      const item = env.RESEARCH_SEARCH.items.get(id);
+      const info = await item.info();
+      if (info.source_id !== "r2:article" || !/^(report|policy)\//.test(info.key)) {
+        throw new NonRetryableError("Refusing to retry an unrelated source");
+      }
+      if (info.status !== "error") return { id, status: info.status, requested: false };
+      const result = await item.sync();
+      return { id, status: result.status, requested: true };
+    }));
+  }
+  return { items };
+}
 
 export async function documentHash(document: unknown): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(document)));
