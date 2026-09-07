@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 export const itemSchema = z.object({
   id: z.string(), key: z.string(), source_id: z.string(), status: z.string(),
-  metadata: z.record(z.string(), z.unknown()).optional(), error: z.string().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(), error: z.string().nullable().optional(),
 }).passthrough();
 type Item = z.infer<typeof itemSchema>;
 export const objectSchema = z.object({ key: z.string(), etag: z.string(), size: z.number(), custom_metadata: z.record(z.string(), z.string()).optional() }).passthrough();
