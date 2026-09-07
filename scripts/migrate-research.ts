@@ -104,7 +104,9 @@ if (command === "inventory") {
       policies: batch.flatMap(entry => "policy" in entry ? [{ sentimentId: entry.policy.sentiment_id, snapshotHash: hash(JSON.stringify(policyArchiveDocument(entry.policy))) }] : []),
     };
     for (const entry of params.reports) {
-      if (hash(await readFile(file(`report-original/${hash(entry.key)}.md`)), "md5") !== entry.etag) throw new Error("Report backup changed");
+      const backup = await readFile(file(`report-original/${hash(entry.key)}.md`));
+      if (hash(backup, "md5") !== entry.etag) throw new Error("Report backup changed");
+      entry.targetEtag = hash(prepareAiSearchMarkdown(backup.toString("utf8")), "md5");
     }
     const id = `research-${hash(JSON.stringify(params)).slice(0,28)}`;
     if (values.apply) {
@@ -135,7 +137,11 @@ async function verify(index: boolean) {
   const byKey = new Map(objects.map(value => [value.key, value]));
   const failures: string[] = [];
   const expected = [
-    ...data.reports.map(value => ({ key: `report/${value.key}`, etag: value.etag, metadata: { ...value.custom_metadata, type: "研报" } })),
+    ...await Promise.all(data.reports.map(async value => ({
+      key: `report/${value.key}`,
+      etag: hash(prepareAiSearchMarkdown(await readFile(file(`report-original/${hash(value.key)}.md`), "utf8")), "md5"),
+      metadata: { ...value.custom_metadata, type: "研报" },
+    }))),
     ...data.policies.map(value => { const doc = policyArchiveDocument(value); return { key: doc.key, etag: hash(doc.content, "md5"), metadata: doc.metadata }; }),
   ];
   for (const item of expected) {

@@ -2,13 +2,14 @@ import type { WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import { z } from "zod";
 import { readArchiveBody } from "./archive-body";
+import { prepareAiSearchMarkdown } from "./article";
 import { POLICY_ARCHIVE_QUERY, policyArchiveDocument, storedPolicySchema } from "./policy-archive";
 
 export const researchMigrationSchema = z.object({
   migration: z.literal("research"), action: z.enum(["copy", "cleanup"]),
   reports: z.array(z.object({
     key: z.string().regex(/^\d{4}-\d{2}-\d{2}\/.+\.md$/),
-    etag: z.string(), metadata: z.record(z.string(), z.string()),
+    etag: z.string(), targetEtag: z.string().optional(), metadata: z.record(z.string(), z.string()),
   }).strict()).max(25).default([]),
   policies: z.array(z.object({
     sentimentId: z.string().regex(/^[A-Za-z0-9_-]+$/), snapshotHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -64,7 +65,7 @@ async function verifyArchive(bucket: R2Bucket, key: string, content: string, met
 
 async function copyArchive(bucket: R2Bucket, key: string, content: string, metadata: Record<string, string>) {
   const existing = await bucket.get(key);
-  if (existing && await readArchiveBody(existing.body) !== content) {
+  if (existing && prepareAiSearchMarkdown(await readArchiveBody(existing.body)) !== content) {
     throw new NonRetryableError(`Conflicting destination: ${key}`);
   }
   const result = await bucket.put(key, content, {
@@ -86,7 +87,7 @@ export async function runResearchMigration(env: Env, payload: ResearchMigrationP
       if (!source) {
         if (params.action !== "cleanup") throw new NonRetryableError("Report source is missing");
         const target = await env.ARTICLE_BUCKET.head(key);
-        if (!target || target.etag !== entry.etag || !metadataEqual(target.customMetadata ?? {}, metadata)) {
+        if (!target || target.etag !== (entry.targetEtag ?? entry.etag) || !metadataEqual(target.customMetadata ?? {}, metadata)) {
           throw new NonRetryableError("Missing verified destination for deleted source");
         }
         return { key, etag: target.etag, deleted: entry.key };
@@ -94,10 +95,13 @@ export async function runResearchMigration(env: Env, payload: ResearchMigrationP
       if (source.etag !== entry.etag || !metadataEqual(source.customMetadata ?? {}, entry.metadata)) {
         throw new NonRetryableError("Report source changed since inventory");
       }
-      const content = await readArchiveBody(source.body);
+      const content = prepareAiSearchMarkdown(await readArchiveBody(source.body));
       const verified = params.action === "copy"
         ? await copyArchive(env.ARTICLE_BUCKET, key, content, metadata)
         : await verifyArchive(env.ARTICLE_BUCKET, key, content, metadata);
+      if (entry.targetEtag && verified.etag !== entry.targetEtag) {
+        throw new NonRetryableError("Destination checksum differs from the normalized backup");
+      }
       if (params.action === "cleanup") {
         await env.ARTICLE_BUCKET.delete(entry.key);
         if (await env.ARTICLE_BUCKET.head(entry.key)) throw new Error("Source removal failed");

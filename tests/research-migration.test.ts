@@ -6,7 +6,8 @@ import { policyArchiveDocument } from "../src/policy-archive";
 describe("research archive migration", () => {
   it("copies and verifies before removing a report source, preserving its date and body", async () => {
     const key = "2026-08-01/迁移校验.md";
-    const content = "# 原文\n\n正文。 \n";
+    const content = "# 原文\n\n正文。下一句。\n";
+    const normalized = "# 原文\n\n正文。 下一句。 \n";
     const metadata = { type: "1", source: "测试机构", published_at: "2026-08-01T01:00:00.000Z" };
     const object = await env.ARTICLE_BUCKET.put(key, content, { customMetadata: metadata });
     for (const action of ["copy", "cleanup"] as const) {
@@ -18,7 +19,7 @@ describe("research archive migration", () => {
         } });
         await instance.waitForStatus("complete");
         const target = await env.ARTICLE_BUCKET.get(`report/${key}`);
-        expect(await target?.text()).toBe(content);
+        expect(await target?.text()).toBe(normalized);
         expect(target?.customMetadata).toEqual({ ...metadata, type: "研报" });
         expect(Boolean(await env.ARTICLE_BUCKET.head(key))).toBe(action === "copy");
       } finally { await instance.dispose(); }
