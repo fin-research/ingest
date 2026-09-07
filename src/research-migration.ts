@@ -34,8 +34,10 @@ export async function retryResearchIndex(env: Env, payload: ResearchIndexRetryPa
         throw new NonRetryableError("Refusing to retry an unrelated source");
       }
       if (info.status !== "error") return { id, status: info.status, requested: false };
-      const result = await item.sync();
-      return { id, status: result.status, requested: true };
+      // The live binding acknowledges sync with null despite the generated
+      // return type. Completion is always checked independently through info().
+      await item.sync();
+      return { id, requested: true };
     }));
   }
   return { items };
