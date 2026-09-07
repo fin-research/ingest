@@ -107,7 +107,9 @@ export class ArticleArchiveMigrationWorkflow extends WorkflowEntrypoint<Env, Arc
           throw new NonRetryableError(`Conflicting bodies for ${entry.r2Key}`);
         }
         const metadata = migrateArchiveMetadata(existing?.customMetadata ?? {}, info.metadata ?? {});
-        const stored = await this.env.ARTICLE_BUCKET.put(entry.r2Key, original, {
+        // R2 is now the direct indexing source, so the existing CJK sentence
+        // boundary workaround must be applied before this sole stored copy.
+        const stored = await this.env.ARTICLE_BUCKET.put(entry.r2Key, prepareAiSearchMarkdown(original), {
           httpMetadata: existing?.httpMetadata ?? { contentType: "text/markdown; charset=utf-8" },
           customMetadata: metadata,
           onlyIf: existing ? { etagMatches: existing.etag } : { etagDoesNotMatch: "*" },

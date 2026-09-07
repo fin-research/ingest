@@ -36,7 +36,7 @@ pnpm exec wrangler r2 bucket info article
 
 `ArticleArchiveMigrationWorkflow` / `article-archive-migration` 仅由维护任务手动触发，Cron 不调用它。每批最多 50 个 `{ itemId, key, r2Key }`：从 `finance` 内置存储读取正文，以原 key 写入 R2 `article`，补齐 `source`、`tags`、`importance`、`type`、`published_at` 元数据。迁移不写 D1，不删除 AI Search Item。
 
-已有 R2 正文优先保留；逐项核对正文，仅允许既有中文标点空格差异，发现实质冲突立即停止该批。历史上传将引号编码为 `%22` 的 key，只允许映射到已存在且正文一致的原始引号 key。R2 写入使用 ETag 条件防止覆盖并发更新，并读回检查元数据。
+已有 R2 正文优先；逐项核对正文，仅允许既有中文标点空格差异，发现实质冲突立即停止该批。R2 作为直接索引来源时，写入前统一应用既有中文标点补空格兼容处理，文字内容不变，迁移前正文保存在本地备份。历史上传将引号编码为 `%22` 的 key，只允许映射到已存在且正文一致的原始引号 key。R2 写入使用 ETag 条件防止覆盖并发更新，并读回检查元数据。
 
 迁移前需保存完整 Item 清单、原始正文及原 R2 对象备份。先回填，再等待 R2 来源索引全部 `completed`、检查原始发布日期过滤和检索内容，最后才允许清理内置副本。数据源连接是否生效，以同步任务实际生成 R2 来源 Item 为准。
 
