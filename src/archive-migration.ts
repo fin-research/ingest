@@ -7,6 +7,7 @@ const entrySchema = z.object({
   itemId: z.string().regex(/^[a-f0-9]{32}$/),
   key: z.string().min(1).max(1024),
   r2Key: z.string().min(1).max(1024),
+  preferExistingEtag: z.string().regex(/^[a-f0-9]{32}$/).optional(),
 }).strict();
 const paramsSchema = z.object({ items: z.array(entrySchema).min(1).max(50) }).strict();
 export type ArchiveMigrationParams = z.infer<typeof paramsSchema>;
@@ -103,7 +104,8 @@ export class ArticleArchiveMigrationWorkflow extends WorkflowEntrypoint<Env, Arc
         }
         const content = await readArchiveBody((await item.download()).body);
         const original = existing ? await readArchiveBody(existing.body) : content;
-        if (!sameArticleContent(original, content)) {
+        if (!sameArticleContent(original, content) &&
+          (!existing || entry.preferExistingEtag !== existing.etag)) {
           throw new NonRetryableError(`Conflicting bodies for ${entry.r2Key}`);
         }
         const metadata = migrateArchiveMetadata(existing?.customMetadata ?? {}, info.metadata ?? {});
