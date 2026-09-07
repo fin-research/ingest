@@ -36,6 +36,7 @@ import {
 } from "./telegram";
 import { isWechatArticleLink, resolveArticleContent } from "./wechat";
 import { archivePolicyEvidence } from "./policy-archive";
+import { dataFetcher } from './data-fetcher';
 
 export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
   override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {
@@ -49,7 +50,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
       "download article from DM",
       { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
       async () => {
-        const detail = await fetchResearchReportDetail(this.env.ARTICLE_API_BASE_URL, article);
+        const detail = await fetchResearchReportDetail(this.env.ARTICLE_API_BASE_URL, article, dataFetcher(this.env));
         if (detail.link) await updateArticleLink(this.env.DB, article.id, detail.link);
         return new Blob([JSON.stringify(detail)]).stream();
       },
@@ -230,7 +231,7 @@ export class PolicyWorkflow extends WorkflowEntrypoint<Env, PolicyWorkflowParams
       async () => {
         const claimed = await repository.loadClaimed(event.instanceId);
         if (claimed.length === 0) throw new Error("Policy workflow has no claimed news");
-        const evidence = await loadPolicyEvidence(this.env.ARTICLE_API_BASE_URL, claimed);
+        const evidence = await loadPolicyEvidence(this.env.ARTICLE_API_BASE_URL, claimed, dataFetcher(this.env));
         return new Blob([JSON.stringify(evidence)]).stream();
       },
     );

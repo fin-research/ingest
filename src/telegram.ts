@@ -101,6 +101,7 @@ export async function collectCentralBankNotifications(
   return await runCentralBankNotificationCollection(
     {
       apiBaseUrl: env.ARTICLE_API_BASE_URL,
+      fetcher: dataFetcher(env),
       repository: new D1TelegramDeliveryRepository(env.DB),
       workflow: new CloudflareTelegramWorkflowLauncher(env.TELEGRAM_WORKFLOW),
     },
@@ -345,3 +346,4 @@ function formatShanghaiDateTime(value: string): string {
     parts.find((part) => part.type === type)?.value || "";
   return `${pick("year")}-${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")}`;
 }
+import { dataFetcher } from './data-fetcher';

@@ -33,6 +33,7 @@ export async function collectResearchReports(env: Env, createdAt: string): Promi
   return await runCollection(
     {
       apiBaseUrl: env.ARTICLE_API_BASE_URL,
+      fetcher: dataFetcher(env),
       repository: new D1ArticleRepository(env.DB),
       workflow: new CloudflareArticleWorkflowLauncher(env.ARTICLE_WORKFLOW),
     },
@@ -145,3 +146,4 @@ class CloudflareArticleWorkflowLauncher implements ArticleWorkflowLauncher {
     return instances.map((instance) => instance.id);
   }
 }
+import { dataFetcher } from './data-fetcher';

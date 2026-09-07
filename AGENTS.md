@@ -27,6 +27,7 @@
 - 列表固定请求 `tag=市场解读&pageSize=100`，并再次执行精确标签过滤。
 - 政策列表固定请求 `tag=中央政策&pageSize=100`，并再次执行精确标签过滤；政策归并必须由 `PolicyWorkflow` 完成。
 - `ARTICLE_API_BASE_URL` 固定为 `https://eastmoney.hasbai.xyz/data`，统一读取 `/data/news` 与详情路由。
+- 所有 Data 列表和详情通过 `src/data-fetcher.ts` 使用 `DATA` / `InternalData` Service Binding；发布前确认 Data Worker 已提供该入口，不以公网请求绕过登录保护。
 - `/data/news` 是顶层 JSON array；请求必须用 `fields` 只取 `sentimentId,newsId,title,time,tags`，不得恢复 `list` 或 `data` envelope 假设。详情仍为顶层 object。
 - 每轮 D1 批量查重；重复轮询不得更新已有记录。新增项一次 `batch()` 写入，Workflow 批量启动失败时删除本轮新增去重行以便重试。
 - Workflow 步骤必须幂等，所有 Promise 必须 await。公众号直连失败时回退 DM 正文。

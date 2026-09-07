@@ -270,6 +270,7 @@ export async function collectPolicies(
   return await runPolicyCollection(
     {
       apiBaseUrl: env.ARTICLE_API_BASE_URL,
+      fetcher: dataFetcher(env),
       repository: new D1PolicyNewsRepository(env.DB),
       workflow: new CloudflarePolicyWorkflowLauncher(env.POLICY_WORKFLOW),
     },
@@ -1152,3 +1153,4 @@ function requireIsoDateTime(value: string, label: string): string {
   if (Number.isNaN(timestamp.valueOf())) throw new Error(`${label} must be an ISO date-time`);
   return timestamp.toISOString();
 }
+import { dataFetcher } from './data-fetcher';

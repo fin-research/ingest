@@ -11,6 +11,9 @@
     "CLOUDFLARE_ACCOUNT_ID": "5cecc63c78acf8f5473f8745f4244448",
     "AI_GATEWAY_ID": "default"
   },
+  "services": [
+    { "binding": "DATA", "service": "eastmoney-data", "entrypoint": "InternalData" }
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1

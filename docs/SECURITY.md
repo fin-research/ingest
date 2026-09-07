@@ -11,6 +11,7 @@
 ## 外部数据
 
 - `ARTICLE_API_BASE_URL` 必须使用 HTTPS。
+- 该地址保留生产 `/data` 契约；Cron 和 Workflow 通过 `DATA` binding 的 `InternalData` 入口读取列表与详情，不依赖浏览器 Cookie 或公网匿名访问。公众号和 AI 请求保持各自既有通道。
 - 列表、详情、公众号 HTML 和 AI 响应都必须限长读取并运行时校验。
 - 不把未经校验的 JSON 或 HTML 直接断言成业务类型。
 - 公众号 Markdown 清洗移除图片 URL 和链接 URL，保留链接锚文本，并按既有规则截断风险披露后文。
