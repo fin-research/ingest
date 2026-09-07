@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { createMaintenanceClient, HttpError, objectSchema, bodyBytes } from "./cloudflare-maintenance.ts";
+import { createMaintenanceClient, HttpError, objectSchema, bodyBytes, indexVerificationIssues } from "./cloudflare-maintenance.ts";
 import { POLICY_ARCHIVE_QUERY, policyArchiveDocument, storedPolicySchema } from "../src/policy-archive.ts";
 import { prepareAiSearchMarkdown } from "../src/article.ts";
 import type { ResearchMigrationParams } from "../src/research-migration.ts";
@@ -153,9 +153,8 @@ async function verify(index: boolean) {
     const indexed = new Map(items.filter(value => value.source_id === "r2:article").map(value => [value.key, value]));
     for (const object of objects.filter(value => /^(report|policy)\//.test(value.key))) {
       const item = indexed.get(object.key);
-      const date = Date.parse(object.custom_metadata?.published_at ?? "");
-      if (!item || item.status !== "completed" || item.checksum !== object.etag || item.metadata?.published_at !== date ||
-        ["type", "source", "tags", "importance"].some(key => object.custom_metadata?.[key] && String(item.metadata?.[key]) !== object.custom_metadata[key])) failures.push(`index: ${object.key} (${item?.status ?? "missing"})`);
+      const issues = indexVerificationIssues(item, object);
+      if (issues.length) failures.push(`index: ${object.key} (${issues.join(", ")})`);
     }
     await save("indexed-items.json", items);
   }

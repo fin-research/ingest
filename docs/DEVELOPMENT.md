@@ -56,7 +56,7 @@ node scripts/migrate-ai-search-r2.ts cleanup --target finance-r2 --apply
 - `--target` 指定已连接 R2 的验收目标，默认 `finance`；配置保存成功不能代替真实来源检查。
 - `copy` 只启动有本地正文备份的批次；实例 ID 由清单稳定派生，重复运行不重复提交。每步条件写入并检查 ETag 和元数据。
 - 如人工比对确认已有 R2 是完整研报、builtin 只是摘要，在对应清单项加入 `preferExistingEtag`，并在备份目录记录审核理由。此例外仅在当前 R2 ETag 精确匹配时生效。
-- `verify` 同时核对每个 R2 key 的来源、最终状态、正文 checksum、原始发布日期和检索字段。迁移期间 Cron 新产生的数据须追加盘点、备份与回填。
+- `verify` 同时核对每个 R2 key 的来源、最终状态、源文件扫描时间、原始发布日期和检索字段。AI Search `checksum` 是服务内部版本标识，不等于 R2 正文 MD5 ETag；正文完整性由 R2 与备份单独核对。迁移期间 Cron 新产生的数据须追加盘点、备份与回填。
 - `cleanup` 仅在目标仍服务 `search.hasbai.xyz`、全部 R2 索引已验证且源正文仍匹配本地备份时，才逐项删除旧 builtin Item；不删除 R2 或实例。
 
 ## Git 与发布

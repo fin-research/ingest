@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { createMaintenanceClient, HttpError, itemSchema, objectSchema, bodyBytes } from "./cloudflare-maintenance.ts";
+import { createMaintenanceClient, HttpError, itemSchema, objectSchema, bodyBytes, indexVerificationIssues } from "./cloudflare-maintenance.ts";
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
   directory: { type: "string", default: "var/ai-search-r2" },
@@ -117,12 +117,7 @@ if (command === "inventory") {
   const indexed = new Map(items.filter(item => item.source_id === "r2:article").map(item => [item.key, item]));
   const failures = objects.filter(object => {
     const item = indexed.get(object.key);
-    return !item || item.status !== "completed" || item.checksum !== object.etag ||
-      new Date(String(object.custom_metadata?.published_at)).valueOf() !== Number(item.metadata?.published_at) ||
-      ["source", "tags", "importance", "type"].some(field => {
-        const expected = object.custom_metadata?.[field];
-        return expected !== undefined && expected !== "" && String(item.metadata?.[field]) !== expected;
-      });
+    return indexVerificationIssues(item, object).length > 0;
   }).map(object => ({ key: object.key, status: indexed.get(object.key)?.status ?? "missing", error: indexed.get(object.key)?.error }));
   await save("verification.json", { objects: objects.length, items: items.length, failures });
   console.log(JSON.stringify({ objects: objects.length, items: items.length, failures: failures.length }));

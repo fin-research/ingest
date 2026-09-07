@@ -7,6 +7,26 @@ export const itemSchema = z.object({
 type Item = z.infer<typeof itemSchema>;
 export const objectSchema = z.object({ key: z.string(), etag: z.string(), size: z.number(), custom_metadata: z.record(z.string(), z.string()).optional() }).passthrough();
 
+export function indexVerificationIssues(item: Item | undefined, object: z.infer<typeof objectSchema>): string[] {
+  if (!item) return ["missing"];
+  const issues: string[] = [];
+  if (item.status !== "completed") issues.push(item.status);
+  // AI Search checksum is an opaque service version, not R2's body MD5 ETag.
+  // R2 bytes are checked against the backup separately. Confirm that the source
+  // was scanned after its latest write, then verify the indexed business fields.
+  if (typeof item.checksum !== "string" || !item.checksum) issues.push("missing source version");
+  const seen = typeof item.last_seen_at === "string"
+    ? Date.parse(item.last_seen_at.includes("T") ? item.last_seen_at : item.last_seen_at.replace(" ", "T") + "Z") : NaN;
+  const modified = typeof object.last_modified === "string" ? Date.parse(object.last_modified) : NaN;
+  if (!Number.isFinite(seen) || !Number.isFinite(modified) || seen < Math.floor(modified / 1000) * 1000) issues.push("source not yet scanned");
+  if (Date.parse(object.custom_metadata?.published_at ?? "") !== Number(item.metadata?.published_at)) issues.push("published_at");
+  for (const field of ["type", "source", "tags", "importance"]) {
+    const expected = object.custom_metadata?.[field];
+    if (expected && String(item.metadata?.[field]) !== expected) issues.push(field);
+  }
+  return issues;
+}
+
 export class HttpError extends Error {
   status: number;
   constructor(message: string, status: number) { super(message); this.status = status; }
