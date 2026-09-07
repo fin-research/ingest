@@ -43,11 +43,6 @@
       "binding": "POLICY_WORKFLOW",
       "name": "policy-aggregation",
       "class_name": "PolicyWorkflow"
-    },
-    {
-      "binding": "ARCHIVE_MIGRATION_WORKFLOW",
-      "name": "article-archive-migration",
-      "class_name": "ArticleArchiveMigrationWorkflow"
     }
   ],
   "r2_buckets": [
@@ -71,13 +66,6 @@
       "binding": "TELEGRAM_USER_ID",
       "store_id": "be6d1afe7ef54df88c65a059080a3f1f",
       "secret_name": "TELEGRAM_USER_ID"
-    }
-  ],
-  "ai_search": [
-    {
-      "binding": "RESEARCH_SEARCH",
-      "instance_name": "research",
-      "remote": true
     }
   ]
 }

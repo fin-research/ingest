@@ -34,7 +34,8 @@ Cron → GET {ARTICLE_API_BASE_URL}/news?tag=中央政策&pageSize=100&fields=se
         1. bounded-concurrency DM detail fetch
         2. AI 按政策事件/政策包口径归并，复核近期 policy_event 是否为同一政策包碎片，并按境内资金/利率影响判定重要性
         3. D1 批量更新规范 policy_event（含 `important` / `related` / `general`）、迁移碎片卡片证据并写入 policy_news
-        4. AI match existing article rows from policy date -1 to +14 days
+        4. archive policy Markdown and metadata to R2 policy/
+        5. AI match existing article rows from policy date -1 to +14 days
 ```
 
 同一文章 ID 在正常轮询中只进入一个 Telegram Workflow。文章 Workflow 实例 ID 使用稳定的 ASCII `article-{articleId}`；Telegram Workflow 使用本轮 Cron 时间戳 `telegram-{scheduledTime}`，不能直接使用中文标题。
@@ -67,7 +68,7 @@ AI Search research sync (15 minutes) → R2 article/report + article/policy → 
 - 正文仅按稳定 key 幂等写 R2；`source`、`tags`、`importance`、`published_at` 与归档元数据一并写入。AI Search 保留五字段 Schema，其中 `type` 使用 text，研报为 `研报`、政策为 `政策`，按原始 `published_at` 过滤，不以迁移时间代替发布日期。
 - ArticleWorkflow 返回 `status: archived` / `indexing: r2-source`；索引完成必须独立检查 `completed`。
 - R2 原始中文 Markdown 仍可能触发 `file_content_empty`，因此复用 `prepareAiSearchMarkdown` 在唯一一次存储前处理标点，AI 特征抽取仍使用原文。
-- `ArticleArchiveMigrationWorkflow` 只由维护 CLI 手动启动，不由 Cron 调用。历史模式从 builtin 回填 R2；research 模式复制研报到 `report/` 或从 D1 原文归档到 `policy/`。清理模式必须逐项确认目标正文与元数据后才删除旧研报路径；政策回填不改写 D1。
+- Worker 不绑定 AI Search；R2 归档和独立索引之间没有上传或轮询步骤。
 
 ## 依赖规则
 

@@ -2,13 +2,11 @@ import { z } from "zod";
 import { articleObjectKey, buildArticleMarkdown, prepareAiSearchMarkdown, validateArticleMetadata } from "./article.ts";
 import type { PolicyAggregationResult, PolicyNewsEvidence } from "./policy";
 
-export const storedPolicySchema = z.object({
+const storedPolicySchema = z.object({
   sentiment_id: z.string(), title: z.string(), published_at: z.string(),
   content: z.string().min(1), departments_json: z.string().nullable(),
 });
-export type StoredPolicy = z.infer<typeof storedPolicySchema>;
-export const POLICY_ARCHIVE_QUERY = `SELECT pn.sentiment_id, pn.title, pn.published_at, pn.content,
-  pe.departments_json FROM policy_news pn LEFT JOIN policy_event pe ON pe.id = pn.policy_id`;
+type StoredPolicy = z.infer<typeof storedPolicySchema>;
 
 export function policyArchiveDocument(value: StoredPolicy) {
   const row = storedPolicySchema.parse(value);

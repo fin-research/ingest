@@ -10,7 +10,7 @@ declare module "cloudflare:workers" {
 
 describe("article workflow steps", () => {
   it("archives without an AI Search binding", () => {
-    expect("FINANCE_SEARCH" in env).toBe(false);
+    expect(Object.keys(env).some(key => key.endsWith("_SEARCH"))).toBe(false);
   });
 
   it("runs WeChat processing as a separate step after downloading DM detail", async () => {

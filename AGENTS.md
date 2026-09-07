@@ -4,7 +4,7 @@
 
 纯 TypeScript Cloudflare Worker。Cron 在工作日北京时间 08:00–18:00 每 5 分钟读取 `市场解读` 文章和 `中央政策` 资讯；新增研报进入 `ArticleWorkflow` 完成正文获取、AI 特征抽取、D1 元数据、R2 归档和政策关联；AI Search 独立同步 R2 数据源，新增政策资讯进入 `PolicyWorkflow` 自动归并为政策卡片。
 
-运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、Workflow `article`、R2 `article`、AI Search `research`。AI Search binding 仅供索引维护，业务正文只通过 R2 数据源索引。
+运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、三个业务 Workflow 和 R2 `article`。AI Search `research` 独立同步 R2，Worker 不绑定 AI Search。
 
 ## Repository Structure
 
@@ -14,10 +14,8 @@
 - `src/policy.ts`：中央政策队列认领、AI 聚合、双向研报关联和 D1 写入。
 - `src/wechat.ts`：公众号直连下载、Markdown 转换和风险披露清洗。
 - `src/feature-extraction.ts`：结构化特征 Schema、Prompt 和 D1 写入。
-- `src/ai-gateway.ts`：AI Gateway 适配器；`src/ai-search.ts` 保留历史上传适配器及回归测试。
-- `src/policy-archive.ts`：PolicyWorkflow 与历史回填共用的政策 Markdown 和元数据。
-- `src/archive-migration.ts` / `src/research-migration.ts`：仅手动触发的存量回填 Workflow，支持历史 builtin 回填、研报目录迁移和 D1 政策归档。
-- `scripts/migrate-ai-search-r2.ts`：一次性维护 CLI，盘点、备份、提交回填批次、验收与清理；正文与凭证不得提交。
+- `src/ai-gateway.ts`：AI Gateway 适配器。
+- `src/policy-archive.ts`：PolicyWorkflow 使用的政策 Markdown、元数据与 R2 归档。
 - `migrations/`：D1 migration。
 - `tests/`：Vitest / Workers runtime 测试。
 

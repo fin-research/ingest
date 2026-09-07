@@ -142,25 +142,14 @@ export function validateArticleFeatures(value: unknown, expectedTitle: string): 
   return { title: expectedTitle, author, summary, importance: importance as number, keywords };
 }
 
-export function buildAiSearchMetadata(
-  features: ArticleFeatures,
-  publishedAt: string,
-): Record<string, string> {
-  return {
-    source: features.author,
-    tags: features.keywords.map((keyword) => keyword.topic).join(","),
-    importance: String(features.importance),
-    published_at: new Date(publishedAt).toISOString(),
-  };
-}
-
 export function buildR2Metadata(
   features: ArticleFeatures,
   publishedAt: string,
 ): Record<string, string> {
   return {
-    ...buildAiSearchMetadata(features, publishedAt),
     type: "研报",
+    source: features.author,
+    tags: features.keywords.map((keyword) => keyword.topic).join(","),
     author: features.author,
     summary: features.summary,
     importance: String(features.importance),

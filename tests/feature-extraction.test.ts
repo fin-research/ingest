@@ -4,7 +4,6 @@ import {
   ARTICLE_FEATURE_MODEL,
   articleFeatureOutputSchema,
   articleFeatureSchema,
-  buildAiSearchMetadata,
   buildFeatureInferenceRequest,
   buildR2Metadata,
   extractArticleFeatures,
@@ -100,7 +99,7 @@ describe("article feature extraction", () => {
     ).toBe("货币政策预期");
   });
 
-  it("builds AI Search metadata from extracted features", () => {
+  it("builds R2 archive and indexing metadata from extracted features", () => {
     const features = {
       ...validFeatures,
       keywords: [
@@ -109,12 +108,6 @@ describe("article feature extraction", () => {
       ],
     };
 
-    expect(buildAiSearchMetadata(features, "2026-08-13T01:02:03Z")).toEqual({
-      source: "国海固收",
-      tags: "降准降息预期,隔夜逆回购重启",
-      importance: "72",
-      published_at: "2026-08-13T01:02:03.000Z",
-    });
     expect(buildR2Metadata(features, "2026-08-13T01:02:03Z")).toEqual({
       type: "研报",
       source: "国海固收",

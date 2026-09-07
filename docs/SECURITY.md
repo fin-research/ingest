@@ -25,9 +25,9 @@
 
 ## Cloudflare 资源
 
-- D1、R2、Workflow 与 AI Search 优先使用 binding，避免在 Worker 中使用管理 API token。
+- D1、R2 与 Workflow 使用 binding，避免在 Worker 中使用管理 API token。AI Search 独立读取 R2，Worker 不持有其 binding 或管理凭证。
 - AI Search 的 `queued` / `running` 状态不得当作成功；最终复核后才能报告修复完成。
-- `ArticleArchiveMigrationWorkflow` 仅允许读固定 `finance` 的 builtin Item 并回填 `article`，不得写 D1、改索引配置或删除源数据；维护凭证和正文备份只能保存在 Git 忽略的 `var/` 目录。
+- 正文备份和验收记录只能保存在 Git 忽略的 `var/` 目录，不得提交。
 
 ## 日志
 
