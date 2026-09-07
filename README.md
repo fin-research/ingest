@@ -10,7 +10,7 @@
 4. 把元数据和关键词写入 D1，把 Markdown 正文归档到 R2。
 5. AI Search 通过 R2 数据源自动同步文章；Workflow 在 R2 归档完成后结束，索引状态独立检查。
 
-D1 不保存正文。正文只写 R2，写入前应用中文标点补空格兼容处理；R2 和 AI Search 使用相同的 `yyyy-mm-dd/标题.md` key。同步间隔设置为 15 分钟，归档完成不代表索引已完成。
+研报正文只写 R2 `article/report/yyyy-mm-dd/标题.md`，政策由 PolicyWorkflow 归档到 `article/policy/yyyy-mm-dd/标题.md`。`type` 元数据分别为文本 `研报`、`政策`。政策原文继续保留在 D1 `policy_news` 供现有详情与点评读取。AI Search `research` 每 15 分钟同步两类目录；归档完成不代表索引已完成。
 
 ## 本地验证
 

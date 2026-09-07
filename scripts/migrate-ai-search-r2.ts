@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
+import { createMaintenanceClient, HttpError, itemSchema, objectSchema, bodyBytes } from "./cloudflare-maintenance.ts";
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
   directory: { type: "string", default: "var/ai-search-r2" },
@@ -19,92 +20,16 @@ if (!["inventory", "backup", "copy", "verify", "cleanup"].includes(command ?? ""
 }
 const directory = resolve(values.directory);
 await mkdir(directory, { recursive: true, mode: 0o700 });
-const base = "https://api.cloudflare.com/client/v4/accounts/5cecc63c78acf8f5473f8745f4244448";
+const { request, json, listItems, listObjects } = createMaintenanceClient(values.credentials);
 const sourcePath = "/ai-search/namespaces/default/instances/finance";
 if (!/^[a-z0-9_-]+$/.test(values.target)) throw new Error("Invalid target instance");
 const targetPath = `/ai-search/namespaces/default/instances/${values.target}`;
-const itemSchema = z.object({
-  id: z.string(), key: z.string(), source_id: z.string(), status: z.string(),
-  metadata: z.record(z.string(), z.unknown()).optional(), error: z.string().nullable().optional(),
-}).passthrough();
-type Item = z.infer<typeof itemSchema>;
-const objectSchema = z.object({ key: z.string(), etag: z.string(), size: z.number(), custom_metadata: z.record(z.string(), z.string()).optional() }).passthrough();
 const inventorySchema = z.object({ items: z.array(itemSchema), objects: z.array(objectSchema) });
 const file = (name: string) => resolve(directory, name);
 const sha = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const objectPath = (key: string) => "/r2/buckets/article/objects/" + key.split("/").map(encodeURIComponent).join("/");
 async function exists(path: string) { try { await access(path); return true; } catch { return false; } }
 async function save(name: string, value: unknown) { await writeFile(file(name), JSON.stringify(value, null, 2) + "\n", { mode: 0o600 }); }
-async function auth() {
-  const token = process.env.CLOUDFLARE_API_TOKEN ?? (await readFile(values.credentials, "utf8")).match(/oauth_token\s*=\s*"([^"]+)"/)?.[1];
-  if (!token) throw new Error("Missing Cloudflare credentials");
-  return token;
-}
-class HttpError extends Error {
-  status: number;
-  constructor(message: string, status: number) { super(message); this.status = status; }
-}
-async function request(path: string, method = "GET", body?: unknown): Promise<Response> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const response = await fetch(base + path, { method,
-        headers: { Authorization: `Bearer ${await auth()}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
-        body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(45000),
-      });
-      if (response.ok) return response;
-      if ((response.status === 429 || response.status >= 500) && attempt < 4) {
-        await response.body?.cancel();
-        await new Promise(resolve => setTimeout(resolve, 2000 * 2 ** attempt));
-        continue;
-      }
-      await response.body?.cancel();
-      throw new HttpError(`${method} ${path}: HTTP ${response.status}`, response.status);
-    } catch (error) {
-      if (attempt >= 4 || method === "POST" || (error instanceof HttpError && error.status < 500 && error.status !== 429)) throw error;
-      await new Promise(resolve => setTimeout(resolve, 2000 * 2 ** attempt));
-    }
-  }
-}
-async function json(path: string, method = "GET", body?: unknown) {
-  const result: unknown = await (await request(path, method, body)).json();
-  const envelope = z.object({ success: z.boolean(), result: z.unknown(), result_info: z.object({ total_count: z.number().optional(), cursor: z.string().optional(), is_truncated: z.boolean().optional() }).passthrough().optional() }).passthrough().parse(result);
-  if (!envelope.success) throw new Error(`${method} ${path}: API success=false`);
-  return envelope;
-}
-async function listItems(path: string) {
-  const byId = new Map<string, Item>();
-  for (let page = 1; ; page++) {
-    const response = await json(`${path}/items?per_page=50&page=${page}`);
-    const items = z.array(itemSchema).parse(response.result);
-    for (const item of items) byId.set(item.id, item);
-    if (items.length < 50 || page * 50 >= (response.result_info?.total_count ?? Infinity)) break;
-  }
-  return [...byId.values()];
-}
-async function listObjects() {
-  const objects: z.infer<typeof objectSchema>[] = [];
-  let cursor = "";
-  do {
-    const response = await json(`/r2/buckets/article/objects?per_page=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
-    objects.push(...z.array(objectSchema).parse(response.result));
-    cursor = response.result_info?.is_truncated ? response.result_info.cursor ?? "" : "";
-  } while (cursor);
-  return objects;
-}
-async function bodyBytes(response: Response) {
-  if (!response.body) throw new Error("Missing response body");
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try { while (true) {
-    const value = await reader.read(); if (value.done) break;
-    size += value.value.byteLength;
-    if (size > 4 * 1024 * 1024) { await reader.cancel(); throw new Error("Article exceeds 4 MiB"); }
-    chunks.push(value.value);
-  } } finally { reader.releaseLock(); }
-  if (size === 0) throw new Error("Empty article download");
-  return Buffer.concat(chunks);
-}
 async function each<T>(entries: T[], operation: (value: T) => Promise<void>) {
   let next = 0, complete = 0;
   const errors: string[] = [];
@@ -176,9 +101,11 @@ if (command === "inventory") {
     for (const item of items) if (hashes.find(hash => hash.itemId === item.itemId)?.sha256 !== sha(await readFile(file(`builtin/${item.itemId}.md`)))) throw new Error("Missing or corrupt backup");
     const id = `r2-${sha(JSON.stringify(items)).slice(0, 28)}`;
     const path = `/workflows/article-archive-migration/instances/${id}`;
-    const response = await fetch(base + path, { headers: { Authorization: `Bearer ${await auth()}` } });
-    if (response.status === 404) await json("/workflows/article-archive-migration/instances", "POST", { instance_id: id, params: { items } });
-    else if (!response.ok) throw new Error(`Workflow lookup failed: HTTP ${response.status}`);
+    try { await json(path); }
+    catch (error) {
+      if (!(error instanceof HttpError) || error.status !== 404) throw error;
+      await json("/workflows/article-archive-migration/instances", "POST", { instance_id: id, params: { items } });
+    }
     batches.push({ id, items: items.length });
     await save("batches.json", batches);
     if (batches.length % 10 === 0) console.log(JSON.stringify({ submitted: batches.length, items: Math.min(index + 25, selected.length) }));

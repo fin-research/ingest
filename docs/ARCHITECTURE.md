@@ -39,7 +39,7 @@ Cron → GET {ARTICLE_API_BASE_URL}/news?tag=中央政策&pageSize=100&fields=se
 
 同一文章 ID 在正常轮询中只进入一个 Telegram Workflow。文章 Workflow 实例 ID 使用稳定的 ASCII `article-{articleId}`；Telegram Workflow 使用本轮 Cron 时间戳 `telegram-{scheduledTime}`，不能直接使用中文标题。
 
-Cron 会并行等待研报采集与 Telegram 抓取去重，因此任一分支失败时仍会完成另一分支。新增匹配资讯由 Workflow 第一步批量写入 D1，第二步才读取 Secret 并调用 Telegram；发送成功后在同一步更新 `sent_at` 与 `telegram_message_id`。第二步重试时先跳过已有 message ID 的记录，避免重复发送已确认成功的资讯。政策资讯不进入 `ArticleWorkflow`、R2 或 AI Search。
+Cron 会并行等待研报采集与 Telegram 抓取去重，因此任一分支失败时仍会完成另一分支。新增匹配资讯由 Workflow 第一步批量写入 D1，第二步才读取 Secret 并调用 Telegram；发送成功后在同一步更新 `sent_at` 与 `telegram_message_id`。第二步重试时先跳过已有 message ID 的记录，避免重复发送已确认成功的资讯。Telegram 通知不进入 `ArticleWorkflow`。中央政策由 `PolicyWorkflow` 归并后写入 R2 `policy/` 并由 AI Search 索引。
 
 `ARTICLE_API_BASE_URL` 固定指向生产 `/data` 前缀；列表和详情都必须从该统一数据入口读取。
 
@@ -55,7 +55,7 @@ DM detail
  → R2 Markdown + search metadata
  → Workflow archived
 
-AI Search scheduled sync (15 minutes) → R2 article → independent indexing status
+AI Search research sync (15 minutes) → R2 article/report + article/policy → independent indexing status
 ```
 
 - DM 详情步骤幂等更新原文 link。
@@ -64,10 +64,10 @@ AI Search scheduled sync (15 minutes) → R2 article → independent indexing st
 - 特征与关键词在一次 D1 `batch()` 中覆盖。
 - 自动研报关系只使用 article 的标题、摘要、机构和结构化关键词。研报触发时，一篇研报与其全部候选政策在一次模型调用中判断，Schema 以政策 ID 为键且每项只包含 `related` 布尔值；政策触发时，每个政策与其全部候选研报同样在一次调用中判断，Schema 改以研报 ID 为键。仅保存判断为直接相关的关系，人工 `linked` / `excluded` 决定不被后续 AI upsert 覆盖。
 - 政策聚合以共同改革目标和集中发布安排为上位口径：同一政策包可包含不同部门、不同文件和不同政策工具；只有宽泛行业主题相同不能合并。近期碎片卡片可自动归并到总览卡片，但含人工研报关系或研究点评的卡片不得作为被合并来源。
-- 正文仅按稳定 key 幂等写 R2；`source`、`tags`、`importance`、`published_at` 与归档元数据一并写入。AI Search 数据源配置保留原有五字段 Schema，按原始 `published_at` 过滤，不以迁移时间代替发布日期。
+- 正文仅按稳定 key 幂等写 R2；`source`、`tags`、`importance`、`published_at` 与归档元数据一并写入。AI Search 保留五字段 Schema，其中 `type` 使用 text，研报为 `研报`、政策为 `政策`，按原始 `published_at` 过滤，不以迁移时间代替发布日期。
 - ArticleWorkflow 返回 `status: archived` / `indexing: r2-source`；索引完成必须独立检查 `completed`。
 - R2 原始中文 Markdown 仍可能触发 `file_content_empty`，因此复用 `prepareAiSearchMarkdown` 在唯一一次存储前处理标点，AI 特征抽取仍使用原文。
-- `ArticleArchiveMigrationWorkflow` 只由维护 CLI 手动启动，从旧 builtin Item 回填 R2，不由 Cron 调用，不写 D1、不删除源文件。
+- `ArticleArchiveMigrationWorkflow` 只由维护 CLI 手动启动，不由 Cron 调用。历史模式从 builtin 回填 R2；research 模式复制研报到 `report/` 或从 D1 原文归档到 `policy/`。清理模式必须逐项确认目标正文与元数据后才删除旧研报路径；政策回填不改写 D1。
 
 ## 依赖规则
 

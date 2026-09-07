@@ -27,7 +27,8 @@ describe("research report helpers", () => {
     expect(parsed).toMatchObject({ id: "2026081100010555370", newsId: "N1" });
     expect(parsed).not.toHaveProperty("sentimentId");
     expect(workflowInstanceId(parsed)).toBe("article-2026081100010555370");
-    expect(articleObjectKey(parsed)).toBe("2026-08-11/信用_市场解读.md");
+    expect(articleObjectKey(parsed)).toBe("report/2026-08-11/信用_市场解读.md");
+    expect(articleObjectKey(parsed, "policy")).toBe("policy/2026-08-11/信用_市场解读.md");
   });
 
   it("fetches only exact market commentary tags and deduplicates article ids", async () => {

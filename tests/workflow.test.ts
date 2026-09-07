@@ -70,9 +70,10 @@ describe("article workflow steps", () => {
       await expect(
         instance.waitForStepResult({ name: "extract article features with Responses API" }),
       ).resolves.toMatchObject({ importance: 60 });
-      const archived = await env.ARTICLE_BUCKET.get("2026-08-12/测试文章.md");
+      const archived = await env.ARTICLE_BUCKET.get("report/2026-08-12/测试文章.md");
       expect(await archived?.text()).toBe("# 测试文章\n\n公众号正文。 \n");
       expect(archived?.customMetadata).toMatchObject({
+        type: "研报",
         source: "测试机构",
         tags: "货币政策预期",
         published_at: "2026-08-12T01:00:00.000Z",
@@ -81,7 +82,7 @@ describe("article workflow steps", () => {
       expect((await workflow.status()).output).toMatchObject({
         status: "archived",
         indexing: "r2-source",
-        key: "2026-08-12/测试文章.md",
+        key: "report/2026-08-12/测试文章.md",
       });
     } finally {
       await instance.dispose();
@@ -146,6 +147,12 @@ describe("Policy aggregation workflow steps", () => {
       });
 
       await expect(instance.waitForStatus("complete")).resolves.toBeUndefined();
+      const archived = await env.ARTICLE_BUCKET.get("policy/2026-09-01/房地产信贷新政.md");
+      expect(await archived?.text()).toBe("# 房地产信贷新政\n\n政策正文\n");
+      expect(archived?.customMetadata).toEqual({
+        type: "政策", source: "中国人民银行,国家金融监督管理总局", tags: "中央政策",
+        published_at: "2026-09-01T11:00:00.000Z",
+      });
       await expect(
         instance.waitForStepResult({ name: "associate policies with existing articles" }),
       ).resolves.toMatchObject({ matches: 1 });

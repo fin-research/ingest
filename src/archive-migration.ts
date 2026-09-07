@@ -1,7 +1,10 @@
+import { readArchiveBody } from "./archive-body";
+export { readArchiveBody } from "./archive-body";
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import { z } from "zod";
 import { prepareAiSearchMarkdown } from "./article";
+import { runResearchMigration, type ResearchMigrationParams } from "./research-migration";
 
 const entrySchema = z.object({
   itemId: z.string().regex(/^[a-f0-9]{32}$/),
@@ -10,7 +13,7 @@ const entrySchema = z.object({
   preferExistingEtag: z.string().regex(/^[a-f0-9]{32}$/).optional(),
 }).strict();
 const paramsSchema = z.object({ items: z.array(entrySchema).min(1).max(50) }).strict();
-export type ArchiveMigrationParams = z.infer<typeof paramsSchema>;
+export type ArchiveMigrationParams = z.infer<typeof paramsSchema> | ResearchMigrationParams;
 
 // Only existing archive aliases are accepted: Items uploads historically escaped
 // quotes in filenames. Never silently change arbitrary object paths.
@@ -54,37 +57,10 @@ export function sameArticleContent(left: string, right: string): boolean {
   return prepareAiSearchMarkdown(left) === prepareAiSearchMarkdown(right);
 }
 
-export async function readArchiveBody(body: ReadableStream): Promise<string> {
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      size += next.value.byteLength;
-      if (size > 4 * 1024 * 1024) {
-        await reader.cancel();
-        throw new Error("Article exceeds 4 MiB");
-      }
-      chunks.push(next.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  if (size === 0) throw new Error("Empty archive content");
-  const content = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    content.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder("utf-8", { fatal: true }).decode(content);
-}
-
 /** Manually triggered maintenance only; never called by Cron or ArticleWorkflow. */
 export class ArticleArchiveMigrationWorkflow extends WorkflowEntrypoint<Env, ArchiveMigrationParams> {
   override async run(event: Readonly<WorkflowEvent<ArchiveMigrationParams>>, step: WorkflowStep) {
+    if ("migration" in event.payload) return await runResearchMigration(this.env, event.payload, step);
     const params = paramsSchema.parse(event.payload);
     const results = [];
     for (const entry of params.items) {

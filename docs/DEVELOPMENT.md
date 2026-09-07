@@ -70,3 +70,23 @@ node scripts/migrate-ai-search-r2.ts cleanup --target finance-r2 --apply
 - Workflow 或模块边界更新 `ARCHITECTURE.md`。
 - D1、幂等与 migration 更新 `DATABASE.md`。
 - Secret、权限或外部校验更新 `SECURITY.md`。
+
+## research 统一目录迁移
+
+`node scripts/migrate-research.ts` 使用同一维护 Workflow：
+
+```sh
+node scripts/migrate-research.ts inventory
+node scripts/migrate-research.ts backup
+node scripts/migrate-research.ts copy --apply
+node scripts/migrate-research.ts status
+node scripts/migrate-research.ts verify
+node scripts/migrate-research.ts verify-index
+node scripts/migrate-research.ts cleanup --apply
+```
+
+默认目录 `var/research-migration`。inventory 冻结旧日期目录的研报对象和 D1 政策正文，不覆盖已有清单；新增数据使用独立 `--directory` 盘点。backup 校验 R2 ETag 并保存正文，copy 使用确定性批次 ID 可恢复执行。政策使用 D1 备份的正文和发布部门，逐项验证快照 hash；不重新生成 AI 内容。
+
+研报目标为 `report/原日期/原文件名`，政策目标为 `policy/上海日期/标题.md`。copy 先比较目标正文，拒绝覆盖不同内容；清理前要求 `research` 全部目标已索引并服务 `search.hasbai.xyz`，随后 Workflow 再逐项比对正文和元数据后删除旧研报路径。D1 政策原文与本地备份保留。
+
+旧 `migrate-ai-search-r2.ts` 命令仅用于历史无前缀目录回填；research 迁移开始后不得对已迁移清单重跑旧回填或清理。

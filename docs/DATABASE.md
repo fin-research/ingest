@@ -11,7 +11,7 @@ D1 绑定为 `DB`，数据库名 `eastmoney`。最终 schema 以 `migrations/` �
 - `link`：幂等补充的原文链接。
 - `author`、`summary`、`importance`、`prompt_version`：经过 Schema 校验的结构化特征。
 
-正文、R2 内容、AI Search 状态和原始上游 JSON 不写入 D1。
+研报正文、R2 内容、AI Search 状态和原始上游 JSON 不写入 D1。政策正文保留在 `policy_news` 供详情与点评读取。
 
 ## `keyword`
 
@@ -56,4 +56,4 @@ D1 绑定为 `DB`，数据库名 `eastmoney`。最终 schema 以 `migrations/` �
 
 ## R2 与 AI Search
 
-R2 保存原始清洗后的 Markdown；AI Search 保存仅增加标点空格兼容修复的版本。两者使用相同 key，但内容职责不同，不能用 AI Search 兼容文本回写覆盖 R2。
+R2 `article` 是 AI Search `research` 的数据源。研报使用 `report/yyyy-mm-dd/标题.md`，政策使用 `policy/yyyy-mm-dd/标题.md`，两者写入前均应用中文标点空格兼容处理。`type` 字段为文本 `研报` 或 `政策`，`published_at` 始终保留原始发布时间。政策 D1 正文继续服务现有读取方。

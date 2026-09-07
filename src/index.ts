@@ -35,6 +35,7 @@ import {
   type TelegramWorkflowParams,
 } from "./telegram";
 import { isWechatArticleLink, resolveArticleContent } from "./wechat";
+import { archivePolicyEvidence } from "./policy-archive";
 
 export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
   override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {
@@ -264,6 +265,11 @@ export class PolicyWorkflow extends WorkflowEntrypoint<Env, PolicyWorkflowParams
         aggregation,
         new Date().toISOString(),
       ),
+    );
+    await step.do(
+      "store policy articles in R2",
+      { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
+      async () => await archivePolicyEvidence(this.env.ARTICLE_BUCKET, evidence, aggregation),
     );
     const associations = await step.do(
       "associate policies with existing articles",

@@ -14,6 +14,7 @@ export default defineConfig({
           ARTICLE_WORKFLOW: { name: "article", className: "ArticleWorkflow" },
           TELEGRAM_WORKFLOW: { name: "telegram", className: "TelegramWorkflow" },
           POLICY_WORKFLOW: { name: "policy-aggregation", className: "PolicyWorkflow" },
+          ARCHIVE_MIGRATION_WORKFLOW: { name: "article-archive-migration", className: "ArticleArchiveMigrationWorkflow" },
         },
       },
     }),

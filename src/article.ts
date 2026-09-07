@@ -139,8 +139,8 @@ export function workflowInstanceId(article: ArticleMetadata): string {
   return `article-${article.id}`;
 }
 
-export function articleObjectKey(article: ArticleMetadata): string {
-  return `${shanghaiDate(article.publishedAt)}/${sanitizeFilename(article.title)}.md`;
+export function articleObjectKey(article: ArticleMetadata, category: "report" | "policy" = "report"): string {
+  return `${category}/${shanghaiDate(article.publishedAt)}/${sanitizeFilename(article.title)}.md`;
 }
 
 export function buildArticleMarkdown(article: ArticleMetadata, detail: ArticleDetail): string {
