@@ -3,7 +3,9 @@
   "name": "ingest",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-12",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "vars": {
     "ARTICLE_API_BASE_URL": "https://eastmoney.hasbai.xyz/data",
     "CLOUDFLARE_ACCOUNT_ID": "5cecc63c78acf8f5473f8745f4244448",
@@ -41,6 +43,11 @@
       "binding": "POLICY_WORKFLOW",
       "name": "policy-aggregation",
       "class_name": "PolicyWorkflow"
+    },
+    {
+      "binding": "ARCHIVE_MIGRATION_WORKFLOW",
+      "name": "article-archive-migration",
+      "class_name": "ArticleArchiveMigrationWorkflow"
     }
   ],
   "r2_buckets": [
@@ -50,7 +57,9 @@
     }
   ],
   "secrets": {
-    "required": ["CF_AIG_TOKEN"]
+    "required": [
+      "CF_AIG_TOKEN"
+    ]
   },
   "secrets_store_secrets": [
     {

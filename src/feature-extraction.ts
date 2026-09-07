@@ -159,6 +159,7 @@ export function buildR2Metadata(
   publishedAt: string,
 ): Record<string, string> {
   return {
+    ...buildAiSearchMetadata(features, publishedAt),
     author: features.author,
     summary: features.summary,
     importance: String(features.importance),

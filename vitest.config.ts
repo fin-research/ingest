@@ -9,6 +9,7 @@ export default defineConfig({
         compatibilityDate: "2026-08-11",
         compatibilityFlags: ["nodejs_compat"],
         d1Databases: ["DB"],
+        r2Buckets: ["ARTICLE_BUCKET"],
         workflows: {
           ARTICLE_WORKFLOW: { name: "article", className: "ArticleWorkflow" },
           TELEGRAM_WORKFLOW: { name: "telegram", className: "TelegramWorkflow" },

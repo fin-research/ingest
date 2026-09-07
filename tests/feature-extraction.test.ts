@@ -116,6 +116,8 @@ describe("article feature extraction", () => {
       published_at: "2026-08-13T01:02:03.000Z",
     });
     expect(buildR2Metadata(features, "2026-08-13T01:02:03Z")).toEqual({
+      source: "国海固收",
+      tags: "降准降息预期,隔夜逆回购重启",
       author: "国海固收",
       summary: validFeatures.summary,
       importance: "72",

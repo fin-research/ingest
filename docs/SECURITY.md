@@ -27,6 +27,7 @@
 
 - D1、R2、Workflow 与 AI Search 优先使用 binding，避免在 Worker 中使用管理 API token。
 - AI Search 的 `queued` / `running` 状态不得当作成功；最终复核后才能报告修复完成。
+- `ArticleArchiveMigrationWorkflow` 仅允许读固定 `finance` 的 builtin Item 并回填 `article`，不得写 D1、改索引配置或删除源数据；维护凭证和正文备份只能保存在 Git 忽略的 `var/` 目录。
 
 ## 日志
 
