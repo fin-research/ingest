@@ -90,18 +90,22 @@ export async function fetchCentralPolicyNews(
   apiBaseUrl: string,
   fetcher: Fetcher = fetch,
 ): Promise<ArticleMetadata[]> {
-  return await fetchTaggedNewsList(apiBaseUrl, CENTRAL_POLICY_TAG, fetcher);
+  return await fetchTaggedNewsList(apiBaseUrl, CENTRAL_POLICY_TAG, fetcher, { important: true });
 }
 
 async function fetchTaggedNewsList(
   apiBaseUrl: string,
   tag: string,
   fetcher: Fetcher,
+  options: { important?: boolean } = {},
 ): Promise<ArticleMetadata[]> {
   const url = apiUrl(apiBaseUrl, "news");
   url.searchParams.set("tag", tag);
   url.searchParams.set("pageSize", String(NEWS_PAGE_SIZE));
   url.searchParams.set("fields", "sentimentId,newsId,title,time,tags");
+  if (options.important !== undefined) {
+    url.searchParams.set("important", String(options.important));
+  }
 
   const response = await fetcher(url, {
     headers: { Accept: "application/json" },

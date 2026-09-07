@@ -106,6 +106,7 @@ describe("research report helpers", () => {
 
     expect(result.map((item) => item.id)).toEqual(["central-1"]);
     expect(requested[0]?.searchParams.get("tag")).toBe("中央政策");
+    expect(requested[0]?.searchParams.get("important")).toBe("true");
     expect(requested[0]?.searchParams.get("fields")).toBe(
       "sentimentId,newsId,title,time,tags",
     );
