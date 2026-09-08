@@ -1,6 +1,6 @@
 # D1 数据规则
 
-D1 绑定为 `DB`，数据库名 `eastmoney`。最终 schema 以 `migrations/` 按顺序执行后的结果为事实来源。
+D1 schema 以 [migrations](../migrations) 为事实来源。本文件只维护 Ingest 表粒度、幂等和写入步骤；生产共享表所有权与两仓库迁移协同见 [共享数据库](../../eastmoney/docs/DATABASE.md#共享-d1)。
 
 ## `article`
 
@@ -56,4 +56,4 @@ D1 绑定为 `DB`，数据库名 `eastmoney`。最终 schema 以 `migrations/` �
 
 ## R2 与 AI Search
 
-R2 `article` 是 AI Search `research` 的数据源。研报使用 `report/yyyy-mm-dd/标题.md`，政策使用 `policy/yyyy-mm-dd/标题.md`，两者写入前均应用中文标点空格兼容处理。`type` 字段为文本 `研报` 或 `政策`，`published_at` 始终保留原始发布时间。政策 D1 正文继续服务现有读取方。
+共享对象命名、元数据、正文保存与索引边界只在 [研究归档协议](../../eastmoney/docs/DATABASE.md#研究归档协议) 维护；本仓库步骤见 [研报](modules/articles.md) 与 [政策](modules/policies.md)。

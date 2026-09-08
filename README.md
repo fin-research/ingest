@@ -10,7 +10,7 @@
 4. 把元数据和关键词写入 D1，把 Markdown 正文归档到 R2。
 5. AI Search 通过 R2 数据源自动同步文章；Workflow 在 R2 归档完成后结束，索引状态独立检查。
 
-研报正文只写 R2 `article/report/yyyy-mm-dd/标题.md`，政策由 PolicyWorkflow 归档到 `article/policy/yyyy-mm-dd/标题.md`。`type` 元数据分别为文本 `研报`、`政策`。政策原文继续保留在 D1 `policy_news` 供现有详情与点评读取。AI Search `research` 每 15 分钟同步两类目录；归档完成不代表索引已完成。
+正文归档、检索元数据和索引完成边界见 [共享存储](../eastmoney/docs/DATABASE.md#研究归档协议)；按 [模块索引](docs/INDEX.md) 分别查看研报、政策与央行通知。
 
 ## 本地验证
 
@@ -28,6 +28,8 @@ pnpm deploy:dry
 ## 文档
 
 - [AI Agent 入口](AGENTS.md)
+- [模块分流](docs/INDEX.md)
+- [项目组共享文档](../eastmoney/docs/INDEX.md)
 - [系统架构](docs/ARCHITECTURE.md)
 - [D1 数据规则](docs/DATABASE.md)
 - [安全边界](docs/SECURITY.md)

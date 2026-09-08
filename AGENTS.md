@@ -33,10 +33,10 @@
 - Workflow 步骤必须幂等，所有 Promise 必须 await。公众号直连失败时回退 DM 正文。
 - 政策与研报关联使用双向增量触发：政策落库时匹配已有研报，研报特征落库时匹配近期政策；人工关联或排除优先于 AI，后续自动任务不得覆盖。
 - 研报正文不写 D1；政策正文继续保留在 `policy_news` 供详情与点评读取。R2 保存两类用于索引的 Markdown，写入前统一应用既有中文标点补空格兼容处理。
-- R2 `article` 统一使用 `report/yyyy-mm-dd/标题.md` 和 `policy/yyyy-mm-dd/标题.md`，日期按上海时区计算。`type` 是文本，值分别为 `研报`、`政策`。AI Search `research` 异步索引这两个目录；业务 Workflow 不上传 builtin Item 或等待索引。
-- 生成式 AI 只通过 `src/ai-gateway.ts` 调用自定义 Provider 的原生 Responses API；固定调用 `custom-codex`，可重试失败时仅重试同一 Provider 一次，`dynamic/rag` 只保留在项目组 `AI.md` 作为历史兼容路线。Zod Schema 是结构化输出唯一来源，应用端必须校验，输入和有效输出不得截断。
+- R2 key、元数据和 AI Search 独立索引遵循 [共享归档协议](../eastmoney/docs/DATABASE.md#研究归档协议)，两类归档复用既有 adapter。
+- 生成式 AI 只通过 `src/ai-gateway.ts`，传输/重试/检索规则见 [共享 AI](../eastmoney/docs/AI.md)。Prompt 与 Zod Schema 留在特征和政策模块。
 - 外部 API 响应必须限长读取并做运行时校验；不得直接断言为业务类型。
-- Cloudflare 资源优先使用 binding；自定义 Provider Responses 必须使用 provider-specific Gateway URL，不能使用会进入 Universal 适配层的 AI binding `run()`。AI Gateway token 只使用 Worker Secret `CF_AIG_TOKEN`。
+- Cloudflare 资源优先使用 binding；AI Gateway 的凭据和日志遵循共享 AI，Telegram Secrets Store 规则见 [SECURITY](docs/SECURITY.md)。
 - 不手动编辑 `worker-configuration.d.ts`；使用 `pnpm types`。
 - 保留用户已有改动，包括与任务无关的工作区文件；不要回退或吸收 `.DS_Store` 等既有差异。
 - 默认交付完成验证后提交并推送 `main`，由 Cloudflare Git 自动构建部署；不得手动运行 `pnpm deploy:worker`。
@@ -53,11 +53,6 @@
 
 ## Context Routing
 
-不要默认读取全部文档。按任务选择：
+跨项目执行与工作树规则见 [项目组 AGENTS](../eastmoney/AGENTS.md)，未在上下文中时读取一次。先按 [docs/INDEX.md](docs/INDEX.md) 选择研报、政策、Telegram 或调度模块，再按影响加读 DATABASE、SECURITY、DEVELOPMENT。
 
-- Cron、Workflow、模块依赖、R2/AI Search 数据流 → `docs/ARCHITECTURE.md`
-- D1 表、去重、特征覆盖、migration → `docs/DATABASE.md`
-- Secret、外部响应、日志、维护脚本权限 → `docs/SECURITY.md`
-- 本地命令、测试、维护盘点、Git 与自动部署 → `docs/DEVELOPMENT.md`
-
-Do not load all documentation by default. Read only documentation relevant to the current task. If multiple areas are affected, read only the corresponding documents. Do not repeatedly read documents already available in the current context unless necessary.
+跨服务变化才读 [共享架构](../eastmoney/docs/ARCHITECTURE.md)，共享表或归档变化才读 [共享数据库](../eastmoney/docs/DATABASE.md)，AI 变化才读 [共享 AI](../eastmoney/docs/AI.md)。不要默认读全量文档，跨模块仅加读受影响部分，不重复读取已有上下文。
