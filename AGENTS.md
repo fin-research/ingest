@@ -56,3 +56,7 @@
 跨项目执行与工作树规则见 [项目组 AGENTS](../eastmoney/AGENTS.md)，未在上下文中时读取一次。先按 [docs/INDEX.md](docs/INDEX.md) 选择研报、政策、Telegram 或调度模块，再按影响加读 DATABASE、SECURITY、DEVELOPMENT。
 
 跨服务变化才读 [共享架构](../eastmoney/docs/ARCHITECTURE.md)，共享表或归档变化才读 [共享数据库](../eastmoney/docs/DATABASE.md)，AI 变化才读 [共享 AI](../eastmoney/docs/AI.md)。不要默认读全量文档，跨模块仅加读受影响部分，不重复读取已有上下文。
+
+## 权限测试
+
+共享认证架构、各权限范围及测试账号配置见 [项目组 AUTH](../eastmoney/docs/AUTH.md)。权限登录与验收只使用程序化 HTTP、单元测试与 CLI，禁止 browser、Chrome、Playwright 和浏览器 MCP。新增测试仅使用匿名和 `test@18.cn` 两种身份；真实密码只读根目录 `.env`，不进入测试夹具或日志。

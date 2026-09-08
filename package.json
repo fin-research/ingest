@@ -11,7 +11,8 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "deploy:dry": "wrangler deploy --dry-run",
-    "deploy:worker": "wrangler deploy"
+    "deploy:worker": "wrangler deploy",
+    "test:auth": "vitest run tests/access.test.ts tests/data-fetcher.test.ts"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "latest",

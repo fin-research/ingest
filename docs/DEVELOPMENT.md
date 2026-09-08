@@ -52,3 +52,7 @@ pnpm exec wrangler r2 bucket info article
 - 调度依赖更新 `ARCHITECTURE.md`，Workflow 步骤更新目标模块；新增模块更新 [INDEX](INDEX.md)。
 - D1 幂等与 migration 更新 `DATABASE.md`；跨仓库表、归档协议与 AI 变更更新 [项目组所有方](../../eastmoney/docs/INDEX.md#维护约定)。
 - Secret、权限或外部校验更新 `SECURITY.md`。
+
+## 权限专项验证
+
+按 [共享 AUTH](../../eastmoney/docs/AUTH.md#程序化权限测试) 执行本仓库匿名/测试账号覆盖。权限验收禁止 browser；真实登录统一使用 Dashboard 的 `pnpm auth:verify`，凭据只从项目组根 `.env` 读取，不复制登录实现或密码到各仓库。

@@ -15,3 +15,5 @@
 | 本地验证、维护、Git 自动部署 | [DEVELOPMENT](DEVELOPMENT.md) | [package](../package.json)、[wrangler](../wrangler.jsonc) |
 
 Dashboard 只在修改共享政策/研报契约时作为受影响消费者读取；本仓库无 UI，不创建 DESIGN 或页面文档。
+
+权限架构、权限范围与匿名/测试账号程序化验收 → [共享 AUTH](../../eastmoney/docs/AUTH.md)。禁止 browser；本仓库覆盖范围与命令见 AUTH 的测试表。
