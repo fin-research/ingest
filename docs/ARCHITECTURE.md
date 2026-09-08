@@ -61,7 +61,7 @@ AI Search research sync (15 minutes) → R2 article/report + article/policy → 
 
 - DM 详情步骤幂等更新原文 link。
 - 公众号下载是独立可重试步骤；失败回退 DM 已清洗正文。
-- AI 特征抽取通过统一 adapter 和 Zod Schema，先直连 AI Gateway 的 `custom-opencode/responses`，遇到网络、超时、限流、上游服务或输出校验错误时再调用 `custom-codex/responses`；两次均失败才交给 Workflow 步骤重试，残缺结果不保存。
+- AI 特征抽取通过统一 adapter 和 Zod Schema，统一调用 AI Gateway 的 `custom-codex/responses`，遇到网络、超时、限流、上游服务或输出校验错误时仅重试同一 Provider 一次；两次均失败才交给 Workflow 步骤重试，残缺结果不保存。
 - 特征与关键词在一次 D1 `batch()` 中覆盖。
 - 自动研报关系只使用 article 的标题、摘要、机构和结构化关键词。研报触发时，一篇研报与其全部候选政策在一次模型调用中判断，Schema 以政策 ID 为键且每项只包含 `related` 布尔值；政策触发时，每个政策与其全部候选研报同样在一次调用中判断，Schema 改以研报 ID 为键。仅保存判断为直接相关的关系，人工 `linked` / `excluded` 决定不被后续 AI upsert 覆盖。
 - 政策聚合以共同改革目标和集中发布安排为上位口径：同一政策包可包含不同部门、不同文件和不同政策工具；只有宽泛行业主题相同不能合并。近期碎片卡片可自动归并到总览卡片，但含人工研报关系或研究点评的卡片不得作为被合并来源。

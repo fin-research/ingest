@@ -18,7 +18,7 @@
 
 ## AI
 
-- 所有生成式调用经过 `src/ai-gateway.ts`；业务模块不得自行拼 AI Gateway HTTP 请求。Adapter 只允许调用固定的 `custom-opencode/responses` 与 `custom-codex/responses` provider-specific URL，避免进入 Universal 适配层。
+- 所有生成式调用经过 `src/ai-gateway.ts`；业务模块不得自行拼 AI Gateway HTTP 请求。Adapter 只允许调用固定的 `custom-codex/responses` provider-specific URL，避免进入 Universal 适配层。
 - Zod Schema 是结构化输出唯一来源；Prompt 不重复手写返回结构。
 - Responses 请求不显式传递 `store`，统一设置 `reasoning.context="current_turn"`，并保留 `reasoning.summary="auto"` 请求可读推理摘要；不得设置 `include: ["reasoning.encrypted_content"]`。这不开放原始推理过程。稳定抽取规则放在 `instructions`，单篇标题和正文只放在末尾 `input`，并使用版本化 `prompt_cache_key` 复用上游 Prompt Cache。
 - 输入正文不截断，不设置 completion token 上限；响应达到读取上限或 Schema 不完整时必须失败并重试。

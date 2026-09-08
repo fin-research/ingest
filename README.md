@@ -6,7 +6,7 @@
 
 1. 工作日北京时间 08:00–18:00 每 5 分钟读取文章列表并批量去重。
 2. Workflow 获取正文；微信公众号优先直连下载，失败时回退 DM 正文。
-3. 通过 AI Gateway Responses API 抽取作者、摘要、重要性和权益/利率债关键词；优先 `custom-opencode`，失败时回退 `custom-codex`。
+3. 通过 AI Gateway Responses API 抽取作者、摘要、重要性和权益/利率债关键词；统一使用 `custom-codex`，可重试失败时仅重试同一 Provider 一次。
 4. 把元数据和关键词写入 D1，把 Markdown 正文归档到 R2。
 5. AI Search 通过 R2 数据源自动同步文章；Workflow 在 R2 归档完成后结束，索引状态独立检查。
 

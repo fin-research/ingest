@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import {
   AI_GATEWAY_REASONING_EFFORT_BY_TASK,
-  AiGatewayFallbackError,
+  AiGatewayRetryError,
   AiGatewayResponseError,
   generateAiGatewayObject,
 } from "../src/ai-gateway";
@@ -52,7 +52,7 @@ describe("AI Gateway provider-specific Responses", () => {
     vi.restoreAllMocks();
   });
 
-  it("calls custom-opencode directly with Gateway auth and one strict JSON Schema", async () => {
+  it("calls custom-codex directly with Gateway auth and one strict JSON Schema", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetcher: typeof fetch = async (url, init) => {
@@ -75,7 +75,7 @@ describe("AI Gateway provider-specific Responses", () => {
     expect(output).toEqual({ ok: true });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe(
-      "https://gateway.ai.cloudflare.com/v1/account-id/default/custom-opencode/responses",
+      "https://gateway.ai.cloudflare.com/v1/account-id/default/custom-codex/responses",
     );
     expect(calls[0]?.init?.method).toBe("POST");
     expect(calls[0]?.init?.signal).toBeInstanceOf(AbortSignal);
@@ -89,7 +89,7 @@ describe("AI Gateway provider-specific Responses", () => {
       article_id: "A001",
       prompt_version: "v5",
       ai_model: "gpt-5.6-luna",
-      ai_provider: "custom-opencode",
+      ai_provider: "custom-codex",
       ai_provider_attempt: "primary",
     });
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
@@ -118,7 +118,7 @@ describe("AI Gateway provider-specific Responses", () => {
     });
     expect(JSON.parse(String(calls[0]?.init?.body))).not.toHaveProperty("include");
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('"provider":"custom-opencode"'),
+      expect.stringContaining('"provider":"custom-codex"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('"requested_reasoning_summary":"auto"'),
@@ -145,7 +145,7 @@ describe("AI Gateway provider-specific Responses", () => {
     });
   });
 
-  it("falls back once to the direct custom-codex Responses endpoint", async () => {
+  it("retries once to the direct custom-codex Responses endpoint", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetcher: typeof fetch = async (url, init) => {
@@ -172,7 +172,7 @@ describe("AI Gateway provider-specific Responses", () => {
     ).resolves.toEqual({ ok: true });
 
     expect(calls.map((call) => call.url)).toEqual([
-      "https://gateway.ai.cloudflare.com/v1/account-id/default/custom-opencode/responses",
+      "https://gateway.ai.cloudflare.com/v1/account-id/default/custom-codex/responses",
       "https://gateway.ai.cloudflare.com/v1/account-id/default/custom-codex/responses",
     ]);
     expect(
@@ -180,12 +180,12 @@ describe("AI Gateway provider-specific Responses", () => {
         JSON.parse(new Headers(call.init?.headers).get("cf-aig-metadata") ?? "null"),
       ),
     ).toMatchObject([
-      { ai_provider: "custom-opencode", ai_provider_attempt: "primary" },
-      { ai_provider: "custom-codex", ai_provider_attempt: "fallback" },
+      { ai_provider: "custom-codex", ai_provider_attempt: "primary" },
+      { ai_provider: "custom-codex", ai_provider_attempt: "retry" },
     ]);
   });
 
-  it("falls back when the primary output fails the business schema", async () => {
+  it("retries when the primary output fails the business schema", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const calls: string[] = [];
     const fetcher: typeof fetch = async (url) => {
@@ -253,7 +253,7 @@ describe("AI Gateway provider-specific Responses", () => {
         fetcher,
       ),
     ).rejects.toMatchObject({
-      provider: "custom-opencode",
+      provider: "custom-codex",
       status: 400,
       gatewayLogId: "log-bad-request",
       retryable: false,
@@ -277,14 +277,14 @@ describe("AI Gateway provider-specific Responses", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("preserves both providers and Gateway log IDs when both attempts fail", async () => {
-    const fetcher: typeof fetch = async (url) => {
-      const fallback = String(url).includes("custom-codex");
+  it("preserves both attempts and Gateway log IDs when both attempts fail", async () => {
+    const fetcher: typeof fetch = async (_url, init) => {
+      const retry = JSON.parse(new Headers(init?.headers).get("cf-aig-metadata") ?? "null").ai_provider_attempt === "retry";
       return new Response(
-        JSON.stringify({ error: { message: fallback ? "fallback down" : "primary down" } }),
+        JSON.stringify({ error: { message: retry ? "retry down" : "primary down" } }),
         {
-          status: fallback ? 502 : 503,
-          headers: { "cf-aig-log-id": fallback ? "log-fallback" : "log-primary" },
+          status: retry ? 502 : 503,
+          headers: { "cf-aig-log-id": retry ? "log-retry" : "log-primary" },
         },
       );
     };
@@ -299,13 +299,48 @@ describe("AI Gateway provider-specific Responses", () => {
         options,
         fetcher,
       );
-      throw new Error("expected both providers to fail");
+      throw new Error("expected both attempts to fail");
     } catch (error) {
-      expect(error).toBeInstanceOf(AiGatewayFallbackError);
-      expect((error as AiGatewayFallbackError).failures).toMatchObject([
-        { provider: "custom-opencode", gatewayLogId: "log-primary" },
-        { provider: "custom-codex", gatewayLogId: "log-fallback" },
+      expect(error).toBeInstanceOf(AiGatewayRetryError);
+      expect((error as AiGatewayRetryError).failures).toMatchObject([
+        { provider: "custom-codex", gatewayLogId: "log-primary" },
+        { provider: "custom-codex", gatewayLogId: "log-retry" },
       ]);
     }
+  });
+});
+
+
+describe("Codex provider contract", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("routes every task type to Codex with its configured reasoning effort", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    for (const taskType of Object.keys(AI_GATEWAY_REASONING_EFFORT_BY_TASK) as Array<keyof typeof AI_GATEWAY_REASONING_EFFORT_BY_TASK>) {
+      const fetcher = vi.fn<typeof fetch>(async () => Response.json({
+        status: "completed",
+        output: [{ type: "message", content: [{ type: "output_text", text: '{"ok":true}' }] }],
+      }));
+      await generateAiGatewayObject(credentials, [{ role: "user", content: "test" }],
+        z.object({ ok: z.boolean() }).strict(), "probe", { ...options, taskType }, fetcher);
+      expect(fetcher).toHaveBeenCalledOnce();
+      const [url, init] = fetcher.mock.calls[0] ?? [];
+      expect(String(url)).toBe("https://gateway.ai.cloudflare.com/v1/account-id/default/custom-codex/responses");
+      expect(JSON.parse(String(init?.body)).reasoning.effort).toBe(AI_GATEWAY_REASONING_EFFORT_BY_TASK[taskType]);
+    }
+  });
+
+  it.each(["final_answer", undefined])("ignores Codex commentary before a %s structured answer", async (phase) => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json({
+      status: "completed",
+      output: [
+        { type: "message", phase: "commentary", content: [{ type: "output_text", text: "I will inspect the input." }] },
+        { type: "message", ...(phase ? { phase } : {}), content: [{ type: "output_text", text: '{"ok":true}' }] },
+      ],
+    }));
+    await expect(generateAiGatewayObject(credentials, [{ role: "user", content: "test" }],
+      z.object({ ok: z.boolean() }).strict(), "probe", options, fetcher)).resolves.toEqual({ ok: true });
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 });

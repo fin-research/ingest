@@ -446,7 +446,7 @@ describe("policy package aggregation", () => {
         policyCandidate("manual-fragment", "人工维护的房地产政策卡片", true),
       ],
       fetcher,
-    )).rejects.toThrow("AI Gateway providers failed");
+    )).rejects.toThrow("AI Gateway attempts failed");
     expect(calls).toBe(2);
   });
 });
