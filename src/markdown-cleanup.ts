@@ -7,9 +7,21 @@ export function stripArchiveMetadata(markdown: string): string {
   const kept: string[] = [];
   let index = 0;
   let metadataFound = false;
+  let inTitle = false;
   for (; index < lines.length; index++) {
     const line = lines[index] ?? "";
-    if (!line.trim() || /^#\s+/.test(line)) {
+    if (/^#\s+/.test(line)) {
+      inTitle = true;
+      kept.push(line);
+      continue;
+    }
+    if (!line.trim()) {
+      inTitle = false;
+      kept.push(line);
+      continue;
+    }
+    // Historical titles can contain literal newlines before the blank separator.
+    if (inTitle) {
       kept.push(line);
       continue;
     }

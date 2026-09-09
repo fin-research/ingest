@@ -20,6 +20,12 @@ describe("archive Markdown cleanup", () => {
       .toBe("# 标题\n\nSource markets differ.\n\nPublished: analysis");
   });
 
+  it("recognizes the archive envelope after a title containing literal newlines", () => {
+    expect(cleanArchiveMarkdown(
+      "# 标题第一行\n标题第二行\n标题第三行\n\nSource: 券商\n\nPublished: 2026-09-08\n\nURL:\n\n正文",
+    )).toBe("# 标题第一行\n标题第二行\n标题第三行\n\n正文");
+  });
+
   it("keeps nested link labels and formatting and consumes complete parenthesized destinations", () => {
     expect(cleanMarkdownLinksAndImages(
       '[**期限 [1]**](https://example.com/a_(b) "标题")与[跨行\n文字](<https://example.com/a b>)。'
