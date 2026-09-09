@@ -39,6 +39,18 @@ pnpm exec wrangler r2 bucket info article
 - R2 归档状态与索引状态分别检查，检索日期使用原始 published_at。
 - 一次性迁移工具及 Workflow 已退役，迁移备份和验收记录保留在本地 var/research-migration-20260907/，不提交 Git。
 
+## 历史研报正文清洗
+
+`article-cleanup` 是手动维护 Workflow，不接入 Cron，也不重跑 AI 特征抽取或写 D1。新归档由共同的 `prepareAiSearchMarkdown` 自动清洗。
+
+1. 全量列出 R2 `article` 的对象，下载 `report/` 正文并备份自定义元数据、HTTP 元数据、ETag 和正文哈希到 Git 忽略的 `var/`；核对下载正文 MD5 与对象 ETag。历史含 `?` 的 key 若管理 API 下载失败，只能使用与当前 ETag 一致的已验证备份，不能跳过哈希校验。
+2. 使用当前 `prepareAiSearchMarkdown` 生成清洗预览，检查正文保留、空正文/纯图片文章、残留语法与幂等性；只将有变化的对象加入执行清单。
+3. 每批至多 25 篇，参数为 `{"items":[{"key":"report/yyyy-mm-dd/标题.md","etag":"备份时的32位ETag"}]}`。通过 `pnpm exec wrangler workflows trigger article-cleanup '<参数JSON>' --id <批次ID>` 或同等管理 API 启动；不得绕过备份直接列举并覆盖全部对象。
+4. 等待实例 `complete`，再全量复核 R2 正文哈希、原发布时间及全部自定义/HTTP 元数据；确认每个目标等于预览，非目标对象未变化，并保存验收记录。失败/并发变化须重新备份和审查，不盲目重试覆盖。
+5. AI Search 独立同步更新后的对象；R2 清洗完成与索引完成分别记录。
+
+2026-09-09 清洗的原文、清单、预览和执行证据保存在本地 `var/article-cleanup-20260909/`，不提交正文或凭证。
+
 ## Git 与发布
 
 - 仓库默认分支为 `main`；开始前检查工作区并保留用户已有改动。

@@ -33,6 +33,11 @@
   ],
   "workflows": [
     {
+      "binding": "ARCHIVE_CLEANUP_WORKFLOW",
+      "name": "article-cleanup",
+      "class_name": "ArchiveCleanupWorkflow"
+    },
+    {
       "binding": "ARTICLE_WORKFLOW",
       "name": "article",
       "class_name": "ArticleWorkflow"

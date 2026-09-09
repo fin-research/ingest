@@ -17,12 +17,14 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "latest",
     "@cloudflare/workers-types": "latest",
+    "@types/mdast": "^4.0.4",
     "@types/node": "latest",
     "typescript": "latest",
     "vitest": "latest",
     "wrangler": "4.126.0"
   },
   "dependencies": {
+    "mdast-util-from-markdown": "^2.0.3",
     "zod": "4.4.3"
   }
 }

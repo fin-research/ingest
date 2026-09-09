@@ -4,7 +4,7 @@
 
 纯 TypeScript Cloudflare Worker。Cron 在工作日北京时间 08:00–18:00 每 5 分钟读取 `市场解读` 文章和 `中央政策` 资讯；新增研报进入 `ArticleWorkflow` 完成正文获取、AI 特征抽取、D1 元数据、R2 归档和政策关联；AI Search 独立同步 R2 数据源，新增政策资讯进入 `PolicyWorkflow` 自动归并为政策卡片。
 
-运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、三个业务 Workflow 和 R2 `article`。AI Search `research` 独立同步 R2，Worker 不绑定 AI Search。
+运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、三个业务 Workflow、手动归档维护 Workflow 和 R2 `article`。AI Search `research` 独立同步 R2，Worker 不绑定 AI Search。
 
 ## Repository Structure
 
@@ -13,6 +13,8 @@
 - `src/ingest.ts`：批量查重、仅新增写入、Workflow 启动和失败回滚。
 - `src/policy.ts`：中央政策队列认领、AI 聚合、双向研报关联和 D1 写入。
 - `src/wechat.ts`：公众号直连下载、Markdown 转换和风险披露清洗。
+- `src/markdown-cleanup.ts`：归档头部、Markdown 图片与链接清洗；保留链接文字与正文格式。
+- `src/archive-cleanup.ts`：按备份清单和 ETag 手动清洗历史研报，保留 R2 元数据，不由 Cron 触发。
 - `src/feature-extraction.ts`：结构化特征 Schema、Prompt 和 D1 写入。
 - `src/ai-gateway.ts`：AI Gateway 适配器。
 - `src/policy-archive.ts`：PolicyWorkflow 使用的政策 Markdown、元数据与 R2 归档。

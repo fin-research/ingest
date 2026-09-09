@@ -1,4 +1,6 @@
 import { readTextBounded, type ArticleDetail, type Fetcher } from "./article";
+import { cleanMarkdownLinksAndImages } from "./markdown-cleanup";
+export { cleanMarkdownTextLinks, cleanMarkdownLinksAndImages } from "./markdown-cleanup";
 
 const MP_ORIGIN = "https://mp.weixin.qq.com";
 const USER_AGENT =
@@ -71,26 +73,6 @@ export function cleanRiskDisclosureMarkdown(markdown: string): string {
     }
   }
   return linkedTextCleaned;
-}
-
-export function cleanMarkdownTextLinks(markdown: string): string {
-  let current = markdown;
-  let previous = "";
-  while (current !== previous) {
-    previous = current;
-    current = current.replace(/(^|[^!])\[([^\]\r\n]+)\]\([^)]+\)/g, "$1$2");
-  }
-  return current;
-}
-
-export function cleanMarkdownLinksAndImages(markdown: string): string {
-  return cleanMarkdownTextLinks(markdown)
-    .replace(/!\[[^\]\r\n]*\]\([^)]+\)/g, "")
-    .replace(/<https?:\/\/[^>]+>/gi, "")
-    .replace(/https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/gi, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function isRiskLine(line: string): boolean {

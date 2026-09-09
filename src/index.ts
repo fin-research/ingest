@@ -37,6 +37,7 @@ import {
 import { isWechatArticleLink, resolveArticleContent } from "./wechat";
 import { archivePolicyEvidence } from "./policy-archive";
 import { dataFetcher } from './data-fetcher';
+export { ArchiveCleanupWorkflow } from "./archive-cleanup";
 
 export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
   override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { cleanArchiveMarkdown } from "./markdown-cleanup.ts";
 
 const MAX_API_RESPONSE_BYTES = 5 * 1024 * 1024;
 const MAX_MARKDOWN_BYTES = 4 * 1024 * 1024;
@@ -150,7 +151,9 @@ export function buildArticleMarkdown(article: ArticleMetadata, detail: ArticleDe
 }
 
 export function prepareAiSearchMarkdown(markdown: string): string {
-  const prepared = addChinesePunctuationSpaces(markdown);
+  const cleaned = cleanArchiveMarkdown(markdown);
+  if (!cleaned) throw new Error("article Markdown is empty after cleaning");
+  const prepared = addChinesePunctuationSpaces(`${cleaned}\n`);
   assertMarkdownFits(prepared);
   return prepared;
 }
