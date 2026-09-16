@@ -12,15 +12,17 @@
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "deploy:dry": "wrangler deploy --dry-run",
     "deploy:worker": "wrangler deploy",
-    "test:auth": "vitest run tests/access.test.ts tests/data-fetcher.test.ts"
+    "test:auth": "vitest run tests/access.test.ts tests/data-fetcher.test.ts",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "latest",
     "@cloudflare/workers-types": "latest",
     "@types/mdast": "^4.0.4",
     "@types/node": "latest",
+    "@vitest/coverage-istanbul": "4.1.10",
     "typescript": "latest",
-    "vitest": "latest",
+    "vitest": "4.1.10",
     "wrangler": "4.126.0"
   },
   "dependencies": {

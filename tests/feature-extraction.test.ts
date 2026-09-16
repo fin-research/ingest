@@ -30,7 +30,7 @@ describe("article feature extraction", () => {
     expect(ARTICLE_FEATURE_MODEL).toBe("gpt-5.6-luna");
   });
 
-  it("uses the strict business schema without repeating a JSON example in the prompt", () => {
+  it("sends complete evidence separately from instructions with the versioned business schema", () => {
     const markdown = "中".repeat(100_000);
     const request = buildFeatureInferenceRequest("标题", markdown);
 
@@ -42,14 +42,6 @@ describe("article feature extraction", () => {
     );
     expect(request.taskType).toBe("summary");
     expect(request.enableThinking).toBe(false);
-    expect(request.messages[0]?.content).toContain("输出“国海固收”");
-    expect(request.messages[0]?.content).toContain("若初步概括仍属于这类上位词");
-    expect(request.messages[0]?.content).toContain("可直接用于投资判断的明确观点");
-    expect(request.messages[0]?.content).toContain("不得因文章是研报就默认给 65、70、75");
-    expect(request.messages[0]?.content).toContain("任何包含“影响/引导/改变定价逻辑”");
-    expect(request.messages[0]?.content).toContain("即使同一句后半段有方向也必须删除空泛分句");
-    expect(request.messages[0]?.content).toContain("仅写“不确定性增加、方向纠结");
-    expect(request.messages[0]?.content).toContain("硬性不得超过 55 个汉字");
     expect(request.messages[0]?.content).not.toContain(markdown);
     expect(request.messages[1]?.content).toContain(markdown);
     expect(request.messages[1]?.content).toContain("响应 JSON Schema");

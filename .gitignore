@@ -6,3 +6,6 @@ node_modules/
 var/
 __pycache__/
 *.pyc
+
+# Local test evidence
+/coverage/

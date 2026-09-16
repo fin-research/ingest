@@ -62,3 +62,7 @@
 ## 权限测试
 
 共享认证架构、各权限范围及测试账号配置见 [项目组 AUTH](../eastmoney/docs/AUTH.md)。权限登录与验收只使用程序化 HTTP、单元测试与 CLI，禁止 browser、Chrome、Playwright 和浏览器 MCP。新增测试仅使用匿名和 `test@18.cn` 两种身份；真实密码只读根目录 `.env`，不进入测试夹具或日志。
+
+## 测试规范
+
+测试新增、合并、覆盖率与视觉回归按 [TESTING](docs/TESTING.md) 执行；不要通过源码样式或控件数量锁定代替行为验证。

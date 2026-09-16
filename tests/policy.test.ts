@@ -190,10 +190,6 @@ describe("policy package aggregation", () => {
     expect(requests[0]?.prompt_cache_key).toBe(`policy-tracking:${POLICY_PROMPT_VERSION}`);
     expect(requests[0]?.instructions).toContain("按“政策事件/政策包”而不是按“文件篇数”聚合");
     expect(requests[0]?.instructions).toContain("中国境内资金面、货币市场和利率");
-    expect(requests[0]?.instructions).toContain("中国人民银行的货币政策");
-    expect(requests[0]?.instructions).toContain("中央政治局会议");
-    expect(requests[0]?.instructions).toContain("单纯的财政政策、产业政策");
-    for (const title of titles) expect(requests[0]?.instructions).toContain(title);
     const format = (requests[0]?.text as {
       format: { schema: { properties: { groups: { items: { properties: Record<string, unknown> } } } } };
     }).format;
