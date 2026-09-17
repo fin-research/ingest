@@ -36,8 +36,10 @@ import {
 } from "./telegram";
 import { isWechatArticleLink, resolveArticleContent } from "./wechat";
 import { archivePolicyEvidence } from "./policy-archive";
-import { dataFetcher } from './data-fetcher';
+import { dataFetcher } from "./data-fetcher";
+import { startOpenMarketWorkflow } from "./open-market";
 export { ArchiveCleanupWorkflow } from "./archive-cleanup";
+export { OpenMarketWorkflow } from "./open-market";
 
 export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
   override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {
@@ -298,6 +300,7 @@ export default {
         workflow: "article",
         telegramWorkflow: "telegram",
         policyWorkflow: "policy-aggregation",
+        openMarketWorkflow: "open-market",
         source: "市场解读",
       });
     }
@@ -310,8 +313,13 @@ export default {
       collectResearchReports(env, scheduledAt),
       collectCentralBankNotifications(env, scheduledAt),
       collectPolicies(env, scheduledAt),
+      startOpenMarketWorkflow(env, controller.scheduledTime),
     ]);
     const [researchReports, telegramNotifications, policies] = results;
+    const openMarket = results[3];
+    if (openMarket?.status === "rejected") {
+      console.error(JSON.stringify({ event: "open_market_start_failed", error: errorMessage(openMarket.reason) }));
+    }
 
     if (researchReports?.status === "fulfilled") {
       console.log(JSON.stringify({ event: "research_report_ingest", ...researchReports.value }));
@@ -345,7 +353,7 @@ export default {
 
     const failed = results
       .map((result, index) => result.status === "rejected"
-        ? ["research_reports", "telegram_collection", "policy_collection"][index]
+        ? ["research_reports", "telegram_collection", "policy_collection", "open_market"][index]
         : null)
       .filter((name): name is string => name !== null);
     if (failed.length > 0) throw new Error(`scheduled collection failed: ${failed.join(", ")}`);

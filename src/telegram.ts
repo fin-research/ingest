@@ -1,4 +1,4 @@
-import { fetchCentralBankPolicyNews, type ArticleMetadata, type Fetcher } from "./article";
+import { fetchCentralBankPolicyNews, readJsonResponse, type ArticleMetadata, type Fetcher } from "./article";
 
 const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
 
@@ -200,12 +200,16 @@ export function telegramWorkflowInstanceId(discoveredAt: string): string {
 export class MessengerNotifier {
   constructor(private readonly binding: { fetch(input: Request): Promise<Response> }) {}
   async send(article: ArticleMetadata): Promise<string> {
+    return await this.sendText(`central-bank/${article.id}`, formatCentralBankNotification(article));
+  }
+
+  async sendText(idempotencyKey: string, text: string): Promise<string> {
     const response = await this.binding.fetch(new Request("https://messenger.internal/messages", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source: "ingest", channel: "telegram", idempotencyKey: `central-bank/${article.id}`, text: formatCentralBankNotification(article) }),
+      body: JSON.stringify({ source: "ingest", channel: "telegram", idempotencyKey, text }),
     }));
     if (!response.ok) throw new Error(`Messenger submission failed: ${response.status}`);
-    const value: unknown = await response.json();
+    const value = await readJsonResponse(response, "Messenger submission");
     if (!value || typeof value !== "object" || !("id" in value) || typeof value.id !== "string") throw new Error("Messenger response is missing id");
     return value.id;
   }

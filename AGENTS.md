@@ -4,11 +4,12 @@
 
 纯 TypeScript Cloudflare Worker。Cron 在工作日北京时间 08:00–18:00 每 5 分钟读取 `市场解读` 文章和 `中央政策` 资讯；新增研报进入 `ArticleWorkflow` 完成正文获取、AI 特征抽取、D1 元数据、R2 归档和政策关联；AI Search 独立同步 R2 数据源，新增政策资讯进入 `PolicyWorkflow` 自动归并为政策卡片。
 
-运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、三个业务 Workflow、手动归档维护 Workflow 和 R2 `article`。AI Search `research` 独立同步 R2，Worker 不绑定 AI Search。
+运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、四个业务 Workflow、手动归档维护 Workflow 和 R2 `article`。AI Search `research` 独立同步 R2，Worker 不绑定 AI Search。
 
 ## Repository Structure
 
 - `src/index.ts`：Worker fetch/scheduled 入口与 Article、Telegram、Policy 三类 Workflow。
+- `src/open-market.ts`：工作日 09:20–09:25 的公开市场操作播报轮询，`loop → notify` 两个 step。
 - `src/article.ts`：外部文章 API 契约、校验、Markdown 与稳定 key。
 - `src/ingest.ts`：批量查重、仅新增写入、Workflow 启动和失败回滚。
 - `src/policy.ts`：中央政策队列认领、AI 聚合、双向研报关联和 D1 写入。
@@ -25,12 +26,12 @@
 
 - 项目必须保持纯 TypeScript；不得新增 Python、本地采集器、SQLite 或 launchd 任务。
 - 修改前搜索现有 adapter、校验器和测试；不要绕过 `article.ts`、`ai-gateway.ts` 或既有 Workflow 步骤直接实现重复逻辑。
-- Cron 固定为 `*/5 0-9 * * MON-FRI`（UTC），即北京时间工作日 `[08:00, 18:00)` 每 5 分钟。
+- Cron 固定为 `*/5 0-9 * * MON-FRI`（UTC），即北京时间工作日 `[08:00, 18:00)` 每 5 分钟；09:20 同时启动当日 `OpenMarketWorkflow`，内部每 10 秒查询，09:25 截止。
 - 列表固定请求 `tag=市场解读&pageSize=100`，并再次执行精确标签过滤。
 - 政策列表固定请求 `tag=中央政策&pageSize=100`，并再次执行精确标签过滤；政策归并必须由 `PolicyWorkflow` 完成。
 - `ARTICLE_API_BASE_URL` 固定为 `https://eastmoney.hasbai.xyz/data`，统一读取 `/data/news` 与详情路由。
 - 所有 Data 列表和详情通过 `src/data-fetcher.ts` 使用 `DATA` / `InternalData` Service Binding；发布前确认 Data Worker 已提供该入口，不以公网请求绕过登录保护。
-- `/data/news` 是顶层 JSON array；请求必须用 `fields` 只取 `sentimentId,newsId,title,time,tags`，不得恢复 `list` 或 `data` envelope 假设。详情仍为顶层 object。
+- `/data/news` 是顶层 JSON array；请求必须用 `fields` 只取 `sentimentId,newsId,title,time,tags`（公开市场播报额外取 `important` 复核），不得恢复 `list` 或 `data` envelope 假设。详情仍为顶层 object。
 - 每轮 D1 批量查重；重复轮询不得更新已有记录。新增项一次 `batch()` 写入，Workflow 批量启动失败时删除本轮新增去重行以便重试。
 - Workflow 步骤必须幂等，所有 Promise 必须 await。公众号直连失败时回退 DM 正文。
 - 政策与研报关联使用双向增量触发：政策落库时匹配已有研报，研报特征落库时匹配近期政策；人工关联或排除优先于 AI，后续自动任务不得覆盖。

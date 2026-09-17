@@ -1,5 +1,6 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
+import { z } from "zod";
 
 export default defineConfig({
   test: {
@@ -15,9 +16,20 @@ export default defineConfig({
       miniflare: {
         compatibilityDate: "2026-08-11",
         compatibilityFlags: ["nodejs_compat"],
+        bindings: { ARTICLE_API_BASE_URL: "https://eastmoney.hasbai.xyz/data" },
+        serviceBindings: {
+          MESSENGER: async (request) => {
+            const payload = z.object({ source: z.string(), channel: z.string(), idempotencyKey: z.string(), text: z.string() }).parse(await request.json());
+            if (payload.source !== "ingest" || payload.channel !== "telegram" || !payload.idempotencyKey.startsWith("open-market/")) {
+              return new Response(null, { status: 422 });
+            }
+            return Response.json({ id: `test:${payload.text}` }, { status: 202 });
+          },
+        },
         d1Databases: ["DB"],
         r2Buckets: ["ARTICLE_BUCKET"],
         workflows: {
+          OPEN_MARKET_WORKFLOW: { name: "open-market", className: "OpenMarketWorkflow" },
           ARTICLE_WORKFLOW: { name: "article", className: "ArticleWorkflow" },
           TELEGRAM_WORKFLOW: { name: "telegram", className: "TelegramWorkflow" },
           POLICY_WORKFLOW: { name: "policy-aggregation", className: "PolicyWorkflow" },

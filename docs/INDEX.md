@@ -7,6 +7,7 @@
 | Cron、DATA 契约、Workflow 启动 | [ARCHITECTURE](ARCHITECTURE.md) | [index](../src/index.ts)、[ingest](../src/ingest.ts)、[data-fetcher](../src/data-fetcher.ts) |
 | 研报正文、公众号、特征与归档 | [研报模块](modules/articles.md) | 模块内链接 article / wechat / feature-extraction |
 | 政策队列、归并、重要性、双向研报关系 | [政策模块](modules/policies.md) | policy / policy-archive |
+| 公开市场操作播报、09:20 轮询 | [公开市场播报](modules/open-market.md) | open-market / article / telegram |
 | 央行资讯与 Telegram | [通知模块](modules/telegram.md) | TelegramWorkflow |
 | D1 幂等、字段、migration | [DATABASE](DATABASE.md) + 目标模块 | 共享结构变化才加读 [共享 D1](../../eastmoney/docs/DATABASE.md#共享-d1) |
 | R2 路径、元数据、AI Search 索引 | 目标归档模块 + [共享归档协议](../../eastmoney/docs/DATABASE.md#研究归档协议) | 不读取 Dashboard 其他存储模块 |

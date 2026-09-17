@@ -94,16 +94,30 @@ export async function fetchCentralPolicyNews(
   return await fetchTaggedNewsList(apiBaseUrl, CENTRAL_POLICY_TAG, fetcher, { important: true });
 }
 
+export async function fetchOpenMarketNews(
+  apiBaseUrl: string,
+  date: string,
+  fetcher: Fetcher,
+): Promise<ArticleMetadata[]> {
+  const articles = await fetchTaggedNewsList(apiBaseUrl, ECONOMIC_DATA_POLICY_TAG, fetcher, {
+    important: true, date, verifyImportant: true,
+  });
+  return articles.filter((article) => article.title.startsWith("中国央行")
+    && shanghaiDate(article.publishedAt) === date);
+}
+
 async function fetchTaggedNewsList(
   apiBaseUrl: string,
   tag: string,
   fetcher: Fetcher,
-  options: { important?: boolean } = {},
+  options: { important?: boolean; date?: string; verifyImportant?: boolean } = {},
 ): Promise<ArticleMetadata[]> {
   const url = apiUrl(apiBaseUrl, "news");
   url.searchParams.set("tag", tag);
   url.searchParams.set("pageSize", String(NEWS_PAGE_SIZE));
   url.searchParams.set("fields", "sentimentId,newsId,title,time,tags");
+  if (options.date) url.searchParams.set("date", options.date);
+  if (options.verifyImportant) url.searchParams.set("fields", "sentimentId,newsId,title,time,tags,important");
   if (options.important !== undefined) {
     url.searchParams.set("important", String(options.important));
   }
@@ -120,6 +134,7 @@ async function fetchTaggedNewsList(
 
   const articles = parsed.data
     .filter((value) => hasExactTag(value, tag))
+    .filter((value) => !options.verifyImportant || z.object({ important: z.literal(true) }).safeParse(value).success)
     .map(validateArticleMetadata);
   return deduplicateArticles(articles);
 }
@@ -176,7 +191,7 @@ function deduplicateArticles(articles: ArticleMetadata[]): ArticleMetadata[] {
   return [...unique.values()];
 }
 
-async function readJsonResponse(response: Response, label: string): Promise<unknown> {
+export async function readJsonResponse(response: Response, label: string): Promise<unknown> {
   if (!response.ok) {
     throw new Error(`${label} request failed with HTTP ${response.status}`);
   }

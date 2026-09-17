@@ -4,9 +4,9 @@
 
 ## 运行入口与采集契约
 
-- [index.ts](../src/index.ts) 的 fetch 只提供 `GET /health`，其他路径返回 404；scheduled 编排研报、央行资讯与政策三条增量链路。
+- [index.ts](../src/index.ts) 的 fetch 只提供 `GET /health`，其他路径返回 404；scheduled 编排研报、央行资讯与政策三条增量链路，并在工作日北京时间 09:20 启动当日公开市场播报 Workflow。
 - Cron 表达式与 Workflow binding 以 [wrangler.jsonc](../wrangler.jsonc) 为准；UTC `*/5 0-9 * * MON-FRI` 对应上海工作日 `[08:00, 18:00)`。
-- 列表固定 `pageSize=100` 并精确复核标签；只请求 `fields=sentimentId,newsId,title,time,tags`。列表为顶层 array，详情为 object，不恢复 `list/data` envelope。
+- 列表固定 `pageSize=100` 并精确复核标签；只请求 `fields=sentimentId,newsId,title,time,tags`。公开市场播报额外请求 `important`，使用 `date` 与 `important=true` 过滤。列表为顶层 array，详情为 object，不恢复 `list/data` envelope。
 - 列表与详情统一经 [data-fetcher.ts](../src/data-fetcher.ts) 的 DATA / InternalData；`ARTICLE_API_BASE_URL` 保留生产 `/data` 前缀，不以公网匿名请求替代 binding。
 - 并行采集分支必须等待完成，某分支失败不能使已经启动的另一分支悬空；所有 Promise await，步骤保持幂等。
 
@@ -17,6 +17,8 @@
 | 研报采集、ArticleWorkflow | [研报模块](modules/articles.md) | [article / keyword](DATABASE.md#article) |
 | 中央政策、PolicyWorkflow | [政策模块](modules/policies.md) | [政策队列与关系](DATABASE.md#政策跟踪) |
 | 央行资讯、TelegramWorkflow | [通知模块](modules/telegram.md) | [投递记录](DATABASE.md#telegram_delivery) |
+
+公开市场播报使用 `OpenMarketWorkflow` / `open-market`，日实例 ID 为 `open-market-YYYY-MM-DD`。复用现有 Cron，不额外增加重复调度。步骤和失败通知见[公开市场播报](modules/open-market.md)。
 
 ## 依赖规则
 
