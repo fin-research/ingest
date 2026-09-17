@@ -16,7 +16,7 @@ git diff --check
 - `pnpm check` 检查 Worker TypeScript 与生成的 binding 类型。
 - `pnpm test` 使用 Vitest Workers pool，不访问真实生产资源。
 - `pnpm deploy:dry` 验证打包与绑定，不发布 Worker。
-- `open-market` Workflow 由现有 Cron 在工作日北京时间 09:20 启动，日实例去重；09:25 停止轮询，`loop → notify` 传递结果，经 Messenger 提交 Telegram 通知。
+- `omo` Workflow 由现有 Cron 在工作日北京时间 09:20 启动，日实例去重；轮询在 step 外，每轮一个 poll step，09:25 未获取即失败；结果由 Messenger 订阅平台事件后统一 email＋Telegram。
 - `article` Workflow 由研报采集按文章创建实例；现有 Worker Cron 先抓取、去重央行资讯，仅在有新增时为整批创建一个 `telegram` Workflow，不使用仅付费 Workers 计划可用的 Workflow schedule。两者都可在 Cloudflare Workflow 实例中逐步排查。
 
 ## 资源初始化

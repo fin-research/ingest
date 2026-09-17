@@ -39,7 +39,7 @@ import { archivePolicyEvidence } from "./policy-archive";
 import { dataFetcher } from "./data-fetcher";
 import { startOpenMarketWorkflow } from "./open-market";
 export { ArchiveCleanupWorkflow } from "./archive-cleanup";
-export { OpenMarketWorkflow } from "./open-market";
+export { OmoWorkflow, OpenMarketWorkflow } from "./open-market";
 
 export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
   override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {
@@ -300,7 +300,7 @@ export default {
         workflow: "article",
         telegramWorkflow: "telegram",
         policyWorkflow: "policy-aggregation",
-        openMarketWorkflow: "open-market",
+        openMarketWorkflow: "omo",
         source: "市场解读",
       });
     }

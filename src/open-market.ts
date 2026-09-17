@@ -1,7 +1,6 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { fetchOpenMarketNews, fetchResearchReportDetail, type Fetcher } from "./article";
 import { dataFetcher } from "./data-fetcher";
-import { MessengerNotifier } from "./telegram";
 
 const INTERVAL_MS = 10_000;
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -20,11 +19,10 @@ interface PollDependencies {
   apiBaseUrl: string;
   fetcher: Fetcher;
   now?: () => number;
-  sleep?: (milliseconds: number) => Promise<void>;
 }
 
 export async function startOpenMarketWorkflow(
-  env: Pick<Env, "OPEN_MARKET_WORKFLOW">,
+  env: Pick<Env, "OMO_WORKFLOW">,
   scheduledTime: number,
 ): Promise<void> {
   const shanghai = new Date(scheduledTime + SHANGHAI_OFFSET_MS);
@@ -32,11 +30,11 @@ export async function startOpenMarketWorkflow(
   if (weekday === 0 || weekday === 6 || shanghai.getUTCHours() !== 9 || shanghai.getUTCMinutes() !== 20) return;
   const date = shanghai.toISOString().slice(0, 10);
   // A daily ID prevents duplicate Cron deliveries from creating another poller.
-  const id = `open-market-${date}`;
-  const [creation] = await Promise.allSettled([env.OPEN_MARKET_WORKFLOW.createBatch([{ id, params: { date } }])]);
+  const id = `omo-${date}`;
+  const [creation] = await Promise.allSettled([env.OMO_WORKFLOW.createBatch([{ id, params: { date } }])]);
   if (creation.status === "fulfilled") return;
   // Also resolves an ambiguous create response after the instance was persisted.
-  const existing = await env.OPEN_MARKET_WORKFLOW.get(id);
+  const existing = await env.OMO_WORKFLOW.get(id);
   await existing.status();
 }
 
@@ -73,76 +71,64 @@ export async function findOpenMarketBulletin(date: string, dependencies: PollDep
   return null;
 }
 
-export async function pollOpenMarket(date: string, dependencies: PollDependencies): Promise<OpenMarketResult> {
+/** One query per durable checkpoint; orchestration and waiting stay outside step.do. */
+export async function runOmo(date: string, step: Pick<WorkflowStep, "do" | "sleepUntil">, dependencies: PollDependencies): Promise<OpenMarketResult> {
   const now = dependencies.now ?? Date.now;
-  const sleep = dependencies.sleep ?? ((milliseconds: number) => scheduler.wait(milliseconds));
-  const start = Date.parse(`${date}T09:20:00+08:00`);
-  const deadline = Date.parse(`${date}T09:25:00+08:00`);
-  if (!Number.isFinite(deadline)) throw new Error("Invalid open market date");
-  let attempts = 0;
-  let errors = 0;
-  let pending: { promise: ReturnType<typeof findOpenMarketBulletin>; abort: AbortController; settled: boolean } | undefined;
-  if (now() < start) await sleep(start - now());
-  while (now() < deadline) {
-    const attemptStart = now();
-    if (!pending || pending.settled) {
+  const deadline = await step.do("validate-window", { retries: { limit: 0, delay: "1 second" } }, async () => {
+    const end = Date.parse(`${date}T09:25:00+08:00`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(end)
+      || new Date(end + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10) !== date) {
+      throw new Error("Invalid omo date");
+    }
+    return end;
+  });
+  let attempts = 0, errors = 0;
+  let lastError = "";
+  for (let index = 1; ; index++) {
+    const attempt = await step.do(`poll-${index}`, {
+      retries: { limit: 0, delay: "1 second" }, timeout: "15 seconds",
+    }, async () => {
+      const started = now();
+      if (started >= deadline) return { expired: true, queried: false, error: "", bulletin: null, nextPollAt: deadline };
+      const start = deadline - 300_000;
+      if (started < start) return { expired: false, queried: false, error: "", bulletin: null, nextPollAt: start };
       const abort = new AbortController();
-      const current = { promise: findOpenMarketBulletin(date, dependencies, abort.signal), abort, settled: false };
-      current.promise = current.promise.then(
-        value => { current.settled = true; return value; },
-        error => { current.settled = true; throw error; },
-      );
-      pending = current;
-    }
-    const active = pending;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // Bound the whole list/detail/body attempt, including stalled Service Bindings.
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        active.abort.abort();
-        reject(new Error("Open market query timed out"));
-      }, Math.min(INTERVAL_MS, deadline - attemptStart));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const bulletin = await Promise.race([
+          findOpenMarketBulletin(date, dependencies, abort.signal),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => {
+            abort.abort(); reject(new Error("OMO query timed out"));
+          }, Math.min(INTERVAL_MS, deadline - started)); }),
+        ]);
+        return { expired: now() >= deadline, queried: true, error: "", bulletin: now() < deadline ? bulletin : null,
+          nextPollAt: Math.min(started + INTERVAL_MS, deadline) };
+      } catch (error) {
+        // Keep useful error type and status without forwarding upstream bodies or credentials.
+        const message = error instanceof Error ? error.message : "Unknown query error";
+        const status = message.match(/\b[45]\d{2}\b/)?.[0];
+        const detail = /timed out|timeout/i.test(message) ? "OMO query timed out"
+          : status ? `OMO upstream HTTP ${status}` : `OMO query failed (${error instanceof Error ? error.name : "Error"})`;
+        return { expired: now() >= deadline, queried: true, error: detail, bulletin: null,
+          nextPollAt: Math.min(started + INTERVAL_MS, deadline) };
+      } finally { clearTimeout(timer); abort.abort(); }
     });
-    const [result] = await Promise.allSettled([
-      Promise.race([active.promise, timeout]),
-    ]);
-    clearTimeout(timer);
-    active.abort.abort();
-    attempts += 1;
-    if (result.status === "rejected") errors += 1;
-    else if (result.value && now() < deadline) {
-      return { date, status: "found", attempts, errors, ...result.value };
-    }
-    const remaining = Math.min(attemptStart + INTERVAL_MS, deadline) - now();
-    if (remaining > 0) await sleep(remaining);
+    if (attempt.queried) attempts++;
+    if (attempt.error) { errors++; lastError = attempt.error; }
+    if (attempt.bulletin) return { date, status: "found", attempts, errors, ...attempt.bulletin };
+    if (attempt.expired) return await step.do("deadline-failure", { retries: { limit: 0, delay: "1 second" } }, async () => { throw new Error(
+      `央行公开市场操作播报获取失败（${date}）：截至09:25未找到符合条件的当日播报；查询${attempts}次，失败${errors}次。${lastError ? `最后错误：${lastError}` : ""}`,
+    ); });
+    await step.sleepUntil(`wait-${index}`, new Date(attempt.nextPollAt));
   }
-  return {
-    date, status: errors > 0 ? "failed" : "not_found", attempts, errors,
-    text: errors > 0
-      ? `央行公开市场操作播报获取失败（${date}）：截至09:25未获取到符合条件的播报，查询失败${errors}次。`
-      : `央行公开市场操作播报获取失败（${date}）：截至09:25未找到符合条件的当日播报。`,
-  };
 }
 
-export class OpenMarketWorkflow extends WorkflowEntrypoint<Env, OpenMarketParams> {
+export class OmoWorkflow extends WorkflowEntrypoint<Env, OpenMarketParams> {
   override async run(event: Readonly<WorkflowEvent<OpenMarketParams>>, step: WorkflowStep) {
-    const result = await step.do("loop", { retries: { limit: 0, delay: "1 second" }, timeout: "6 minutes" }, async () => {
-      const [outcome] = await Promise.allSettled([
-        Promise.resolve().then(async () => await pollOpenMarket(event.payload.date, {
-          apiBaseUrl: this.env.ARTICLE_API_BASE_URL, fetcher: dataFetcher(this.env),
-        })),
-      ]);
-      if (outcome.status === "fulfilled") return outcome.value;
-      return {
-        date: event.payload.date, status: "failed", attempts: 0, errors: 1,
-        text: `央行公开市场操作播报获取失败（${event.payload.date}）：轮询异常。`,
-      } satisfies OpenMarketResult;
-    });
-    return await step.do("notify", {
-      retries: { limit: 3, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes",
-    }, async () => {
-      const messengerId = await new MessengerNotifier(this.env.MESSENGER).sendText(`open-market/${result.date}`, result.text);
-      return { ...result, messengerId, delivery: "submitted" };
+    return await runOmo(event.payload.date, step, {
+      apiBaseUrl: this.env.ARTICLE_API_BASE_URL, fetcher: dataFetcher(this.env),
     });
   }
 }
+// Retain the previous namespace for instance history; Cron only creates omo instances.
+export class OpenMarketWorkflow extends OmoWorkflow {}

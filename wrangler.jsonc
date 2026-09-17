@@ -41,6 +41,7 @@
     }
   ],
   "workflows": [
+    { "binding": "OMO_WORKFLOW", "name": "omo", "class_name": "OmoWorkflow" },
     {
       "binding": "OPEN_MARKET_WORKFLOW",
       "name": "open-market",

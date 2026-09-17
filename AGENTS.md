@@ -9,7 +9,7 @@
 ## Repository Structure
 
 - `src/index.ts`：Worker fetch/scheduled 入口与 Article、Telegram、Policy 三类 Workflow。
-- `src/open-market.ts`：工作日 09:20–09:25 的公开市场操作播报轮询，`loop → notify` 两个 step。
+- `src/open-market.ts`：工作日 09:20–09:25 的公开市场操作播报轮询，循环在 step 外，每轮一个 `poll-N` checkpoint。
 - `src/article.ts`：外部文章 API 契约、校验、Markdown 与稳定 key。
 - `src/ingest.ts`：批量查重、仅新增写入、Workflow 启动和失败回滚。
 - `src/policy.ts`：中央政策队列认领、AI 聚合、双向研报关联和 D1 写入。
@@ -26,7 +26,7 @@
 
 - 项目必须保持纯 TypeScript；不得新增 Python、本地采集器、SQLite 或 launchd 任务。
 - 修改前搜索现有 adapter、校验器和测试；不要绕过 `article.ts`、`ai-gateway.ts` 或既有 Workflow 步骤直接实现重复逻辑。
-- Cron 固定为 `*/5 0-9 * * MON-FRI`（UTC），即北京时间工作日 `[08:00, 18:00)` 每 5 分钟；09:20 同时启动当日 `OpenMarketWorkflow`，内部每 10 秒查询，09:25 截止。
+- Cron 固定为 `*/5 0-9 * * MON-FRI`（UTC），即北京时间工作日 `[08:00, 18:00)` 每 5 分钟；09:20 同时启动当日 `OmoWorkflow`（omo），内部每 10 秒查询，09:25 未找到则明确失败。
 - 列表固定请求 `tag=市场解读&pageSize=100`，并再次执行精确标签过滤。
 - 政策列表固定请求 `tag=中央政策&pageSize=100`，并再次执行精确标签过滤；政策归并必须由 `PolicyWorkflow` 完成。
 - `ARTICLE_API_BASE_URL` 固定为 `https://eastmoney.hasbai.xyz/data`，统一读取 `/data/news` 与详情路由。

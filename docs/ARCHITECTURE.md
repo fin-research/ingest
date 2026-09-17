@@ -18,7 +18,7 @@
 | 中央政策、PolicyWorkflow | [政策模块](modules/policies.md) | [政策队列与关系](DATABASE.md#政策跟踪) |
 | 央行资讯、TelegramWorkflow | [通知模块](modules/telegram.md) | [投递记录](DATABASE.md#telegram_delivery) |
 
-公开市场播报使用 `OpenMarketWorkflow` / `open-market`，日实例 ID 为 `open-market-YYYY-MM-DD`。复用现有 Cron，不额外增加重复调度。步骤和失败通知见[公开市场播报](modules/open-market.md)。
+公开市场播报使用 `OmoWorkflow` / `omo`，日实例 ID 为 `omo-YYYY-MM-DD`。复用现有 Cron，不额外增加重复调度。步骤和失败通知见[公开市场播报](modules/open-market.md)。
 
 ## 依赖规则
 
