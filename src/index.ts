@@ -177,7 +177,7 @@ export class TelegramWorkflow extends WorkflowEntrypoint<Env, TelegramWorkflowPa
         const delivered = await repository.findDeliveredMessageIds(
           stored.map((article) => article.id),
         );
-        const deliveries = [...delivered].map(([articleId, messageId]) => ({
+        const deliveries: TelegramDeliverySummary["deliveries"] = [...delivered].map(([articleId, messageId]) => ({
           articleId,
           messageId,
         }));
@@ -187,7 +187,7 @@ export class TelegramWorkflow extends WorkflowEntrypoint<Env, TelegramWorkflowPa
         for (const article of stored) {
           if (delivered.has(article.id)) continue;
           notifier ??= await createTelegramNotifier(this.env);
-          let messageId: number;
+          let messageId: string;
           try {
             messageId = await notifier.send(article);
           } catch (error) {
@@ -195,7 +195,7 @@ export class TelegramWorkflow extends WorkflowEntrypoint<Env, TelegramWorkflowPa
               `Telegram notification failed for article ${article.id}: ${errorMessage(error)}`,
             );
           }
-          await repository.markDelivered(article.id, new Date().toISOString(), messageId);
+          await repository.markSubmitted(article.id, messageId);
           deliveries.push({ articleId: article.id, messageId });
           sent += 1;
         }

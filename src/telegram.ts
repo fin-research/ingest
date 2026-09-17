@@ -1,7 +1,5 @@
-import { fetchCentralBankPolicyNews, readTextBounded, type ArticleMetadata, type Fetcher } from "./article";
+import { fetchCentralBankPolicyNews, type ArticleMetadata, type Fetcher } from "./article";
 
-const MAX_TELEGRAM_RESPONSE_BYTES = 64 * 1024;
-const TELEGRAM_REQUEST_TIMEOUT_MS = 30_000;
 const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
 
 export interface TelegramCollectionSummary {
@@ -46,23 +44,11 @@ export interface TelegramDeliverySummary {
   stored: number;
   sent: number;
   alreadySent: number;
-  deliveries: Array<{ articleId: string; messageId: number }>;
+  deliveries: Array<{ articleId: string; messageId: number | string }>;
 }
 
-export async function createTelegramNotifier(
-  env: Pick<Env, "TELEGRAM_BOT_TOKEN" | "TELEGRAM_USER_ID">,
-): Promise<TelegramNotifier> {
-  let botToken: string;
-  let userId: string;
-  try {
-    [botToken, userId] = await Promise.all([
-      env.TELEGRAM_BOT_TOKEN.get(),
-      env.TELEGRAM_USER_ID.get(),
-    ]);
-  } catch {
-    throw new Error("Telegram credentials are unavailable from Secrets Store");
-  }
-  return new TelegramBotNotifier(botToken, userId);
+export async function createTelegramNotifier(env: Pick<Env, "MESSENGER">) {
+  return new MessengerNotifier(env.MESSENGER);
 }
 
 export async function runCentralBankNotificationCollection(
@@ -117,7 +103,7 @@ export class D1TelegramDeliveryRepository implements TelegramDeliveryRepository 
     if (uniqueIds.length === 0) return new Set();
     const placeholders = uniqueIds.map(() => "?").join(", ");
     const result = await this.database
-      .prepare(`SELECT article_id FROM telegram_delivery WHERE article_id IN (${placeholders})`)
+      .prepare(`SELECT article_id FROM telegram_delivery WHERE article_id IN (${placeholders}) AND (sent_at IS NOT NULL OR messenger_id IS NOT NULL)`)
       .bind(...uniqueIds)
       .all<{ article_id: string }>();
     return new Set(result.results.map((row) => row.article_id));
@@ -150,10 +136,9 @@ export class D1TelegramDeliveryRepository implements TelegramDeliveryRepository 
         SELECT article_id
         FROM telegram_delivery
         WHERE article_id IN (${placeholders})
-          AND workflow_instance_id = ?
-          AND sent_at IS NULL
+          AND sent_at IS NULL AND messenger_id IS NULL
       `)
-      .bind(...articles.map((article) => article.id), workflowInstanceId)
+      .bind(...articles.map((article) => article.id))
       .all<{ article_id: string }>();
     const ownedIds = new Set(owned.results.map((row) => row.article_id));
     return articles.filter((article) => ownedIds.has(article.id));
@@ -172,6 +157,11 @@ export class D1TelegramDeliveryRepository implements TelegramDeliveryRepository 
       .bind(...uniqueIds)
       .all<{ article_id: string; telegram_message_id: number }>();
     return new Map(result.results.map((row) => [row.article_id, row.telegram_message_id]));
+  }
+
+  async markSubmitted(articleId: string, id: string): Promise<void> {
+    await this.database.prepare("UPDATE telegram_delivery SET messenger_id=?,submitted_at=? WHERE article_id=? AND sent_at IS NULL")
+      .bind(id, new Date().toISOString(), articleId).run();
   }
 
   async markDelivered(articleId: string, sentAt: string, messageId: number): Promise<void> {
@@ -207,129 +197,21 @@ export function telegramWorkflowInstanceId(discoveredAt: string): string {
   return `telegram-${timestamp}`;
 }
 
-export class TelegramBotNotifier implements TelegramNotifier {
-  private readonly botToken: string;
-  private readonly userId: string;
-
-  constructor(
-    botToken: string,
-    userId: string,
-    private readonly fetcher: Fetcher = fetch,
-  ) {
-    this.botToken = requireTelegramBotToken(botToken);
-    this.userId = requireTelegramUserId(userId);
-  }
-
-  async send(article: ArticleMetadata): Promise<number> {
-    const endpoint = new URL(`https://api.telegram.org/bot${this.botToken}/sendMessage`);
-    let response: Response;
-    try {
-      const fetcher = this.fetcher;
-      response = await fetcher(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: this.userId,
-          text: formatCentralBankNotification(article),
-        }),
-        signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS),
-      });
-    } catch (error) {
-      throw new Error(
-        `Telegram sendMessage request failed: ${redactTelegramFetchError(error, this.botToken)}`,
-      );
-    }
-
-    const payload = await readTelegramResponse(response);
-    if (!response.ok || !payload.ok) {
-      const errorCode = payload.errorCode ? `, code ${payload.errorCode}` : "";
-      const description = payload.description ? `: ${payload.description}` : "";
-      throw new Error(
-        `Telegram sendMessage failed with HTTP ${response.status}${errorCode}${description}`,
-      );
-    }
-    if (!payload.result || !Number.isSafeInteger(payload.result.message_id)) {
-      throw new Error("Telegram sendMessage response is missing message_id");
-    }
-    return payload.result.message_id;
+export class MessengerNotifier {
+  constructor(private readonly binding: { fetch(input: Request): Promise<Response> }) {}
+  async send(article: ArticleMetadata): Promise<string> {
+    const response = await this.binding.fetch(new Request("https://messenger.internal/messages", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "ingest", channel: "telegram", idempotencyKey: `central-bank/${article.id}`, text: formatCentralBankNotification(article) }),
+    }));
+    if (!response.ok) throw new Error(`Messenger submission failed: ${response.status}`);
+    const value: unknown = await response.json();
+    if (!value || typeof value !== "object" || !("id" in value) || typeof value.id !== "string") throw new Error("Messenger response is missing id");
+    return value.id;
   }
 }
-
 export function formatCentralBankNotification(article: ArticleMetadata): string {
   return `${article.title}\n发布时间：${formatShanghaiDateTime(article.publishedAt)}`;
-}
-
-interface TelegramResponse {
-  ok: boolean;
-  result?: { message_id: number };
-  errorCode?: number;
-  description?: string;
-}
-
-async function readTelegramResponse(response: Response): Promise<TelegramResponse> {
-  const text = await readTextBounded(response, MAX_TELEGRAM_RESPONSE_BYTES, "Telegram response");
-  let value: unknown;
-  try {
-    value = JSON.parse(text) as unknown;
-  } catch {
-    throw new Error("Telegram sendMessage response is not valid JSON");
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Telegram sendMessage response must be an object");
-  }
-  const row = value as Record<string, unknown>;
-  const result = row.result;
-  if (typeof row.ok !== "boolean") {
-    throw new Error("Telegram sendMessage response is missing ok");
-  }
-  const errorCode = row.error_code;
-  const description = row.description;
-  const errorFields = {
-    ...(typeof errorCode === "number" && Number.isSafeInteger(errorCode)
-      ? { errorCode }
-      : {}),
-    ...(typeof description === "string" && description.trim()
-      ? { description: description.trim().slice(0, 500) }
-      : {}),
-  };
-  if (result === undefined) return { ok: row.ok, ...errorFields };
-  if (!result || typeof result !== "object" || Array.isArray(result)) {
-    throw new Error("Telegram sendMessage result must be an object");
-  }
-  const messageId = (result as Record<string, unknown>).message_id;
-  return {
-    ok: row.ok,
-    ...errorFields,
-    ...(typeof messageId === "number" ? { result: { message_id: messageId } } : {}),
-  };
-}
-
-function requireCredential(value: string, name: string): string {
-  const normalized = value.trim();
-  if (!normalized) throw new Error(`Telegram ${name} is empty`);
-  return normalized;
-}
-
-function requireTelegramUserId(value: string): string {
-  const normalized = requireCredential(value, "user id");
-  if (!/^\d+$/.test(normalized)) throw new Error("Telegram user id must be numeric");
-  return normalized;
-}
-
-function requireTelegramBotToken(value: string): string {
-  const normalized = requireCredential(value, "bot token");
-  if (!/^\d+:[A-Za-z0-9_-]+$/.test(normalized)) {
-    throw new Error("Telegram bot token has an invalid format");
-  }
-  return normalized;
-}
-
-function redactTelegramFetchError(value: unknown, botToken: string): string {
-  const raw = value instanceof Error ? `${value.name}: ${value.message}` : "Unknown error";
-  return raw
-    .replaceAll(botToken, "[REDACTED]")
-    .replace(/https:\/\/api\.telegram\.org\/bot[^/\s]+/g, "https://api.telegram.org/bot[REDACTED]")
-    .slice(0, 500);
 }
 
 function formatShanghaiDateTime(value: string): string {

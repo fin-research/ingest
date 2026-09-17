@@ -25,9 +25,10 @@ D1 schema 以 [migrations](../migrations) 为事实来源。本文件只维护 I
 - `title`、`published_at`：当时发送的资讯标识与发布时间。
 - `discovered_at`：Cron 首次发现并由 Workflow 入库的时间。
 - `workflow_instance_id`：首次成功入库该资讯的 Telegram Workflow；并发实例不能发送不属于自己的记录。
-- `sent_at`、`telegram_message_id`：初始为空；Telegram 成功响应后一起更新为投递时间和消息 ID。
+- `sent_at`、`telegram_message_id`：历史直发记录的成功时间和 Telegram 消息 ID；迁移后新记录保持为空。
+- `messenger_id`、`submitted_at`：提交给 messenger 后写入的提交 ID 和时间；不代表 Telegram 已发送。
 - 只有标题以 `中国央行：` 开头且精确包含 `经济数据&政策` 标签的资讯才会写入；全角冒号属于匹配前缀，不能省略或替换为半角冒号。
-- Workflow 第一步先写待发送记录，第二步发送并更新成功字段。第二步重试时查询已有 message ID 并跳过已完成记录；Telegram 网络结果不确定时仍可能出现极少量重复，但不会把未发送资讯误记为成功。
+- Workflow 第一步先写待发送记录，第二步提交 messenger 并更新提交字段。第二步重试时查询已有 Telegram 消息 ID 或 messenger 提交 ID 并跳过已完成记录；最终发送状态由 messenger 管理。
 
 ## 写入规则
 

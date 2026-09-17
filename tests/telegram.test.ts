@@ -4,7 +4,7 @@ import type { ArticleMetadata } from "../src/article";
 import {
   formatCentralBankNotification,
   runCentralBankNotificationCollection,
-  TelegramBotNotifier,
+  MessengerNotifier,
   telegramWorkflowInstanceId,
   type TelegramDeliveryRepository,
   type TelegramWorkflowLauncher,
@@ -167,93 +167,18 @@ describe("central bank Telegram notifications", () => {
     )).resolves.toEqual([]);
   });
 
-  it("posts a bounded plain-text alert to Telegram sendMessage", async () => {
-    let requestedUrl = "";
-    let requestedInit: RequestInit | undefined;
-    const strictFetcher = async function (
-      this: unknown,
-      input: RequestInfo | URL,
-      init?: RequestInit,
-    ): Promise<Response> {
-      expect(this).toBeUndefined();
-      requestedUrl = input.toString();
-      requestedInit = init;
-      return Response.json({ ok: true, result: { message_id: 456 } });
-    };
-    const notifier = new TelegramBotNotifier("123456:test-token", "789012", strictFetcher);
-
-    const messageId = await notifier.send({
-      id: policyNews.sentimentId,
-      newsId: policyNews.newsId,
-      title: policyNews.title,
-      publishedAt: policyNews.time,
-    });
-
-    expect(messageId).toBe(456);
-    expect(new URL(requestedUrl).origin).toBe("https://api.telegram.org");
-    expect(new URL(requestedUrl).pathname.endsWith("/sendMessage")).toBe(true);
-    expect(requestedInit?.method).toBe("POST");
-    expect(JSON.parse(String(requestedInit?.body))).toEqual({
-      chat_id: "789012",
-      text: "中国央行：今日开展公开市场操作\n发布时间：2026-08-25 08:31",
-    });
+  it("submits stable business keys through the private messenger binding", async () => {
+    let payload: any;
+    const notifier = new MessengerNotifier({fetch: async request => {
+      payload=await request.json();return Response.json({id:'message-1',status:'queued'});
+    }});
+    const result=await notifier.send({id:policyNews.sentimentId,title:policyNews.title,publishedAt:policyNews.time});
+    expect(result).toBe('message-1');expect(payload).toEqual({source:'ingest',channel:'telegram',idempotencyKey:`central-bank/${policyNews.sentimentId}`,text:'中国央行：今日开展公开市场操作\n发布时间：2026-08-25 08:31'});
   });
-
-  it("rejects non-numeric user IDs and malformed Telegram responses", async () => {
-    expect(() => new TelegramBotNotifier("123:test", "@channel")).toThrow("numeric");
-    const notifier = new TelegramBotNotifier(
-      "123:test",
-      "456",
-      async (): Promise<Response> => Response.json({ ok: true, result: {} }),
-    );
-    await expect(notifier.send({
-      id: policyNews.sentimentId,
-      title: policyNews.title,
-      publishedAt: policyNews.time,
-    })).rejects.toThrow("message_id");
-  });
-
-  it("reports Telegram error codes without exposing request credentials", async () => {
-    const notifier = new TelegramBotNotifier(
-      "123:secret-token",
-      "456",
-      async (): Promise<Response> => Response.json(
-        { ok: false, error_code: 400, description: "Bad Request: chat not found" },
-        { status: 400 },
-      ),
-    );
-
-    const sending = notifier.send({
-      id: policyNews.sentimentId,
-      title: policyNews.title,
-      publishedAt: policyNews.time,
-    });
-    await expect(sending).rejects.toThrow(
-      "Telegram sendMessage failed with HTTP 400, code 400: Bad Request: chat not found",
-    );
-    await expect(sending).rejects.not.toThrow("secret-token");
-  });
-
-  it("redacts bot credentials from Telegram fetch failures", async () => {
-    const notifier = new TelegramBotNotifier(
-      "123:secret-token",
-      "456",
-      async (): Promise<Response> => {
-        throw new TypeError(
-          "Network error at https://api.telegram.org/bot123:secret-token/sendMessage",
-        );
-      },
-    );
-
-    const sending = notifier.send({
-      id: policyNews.sentimentId,
-      title: policyNews.title,
-      publishedAt: policyNews.time,
-    });
-    await expect(sending).rejects.toThrow(
-      "Telegram sendMessage request failed: TypeError: Network error at https://api.telegram.org/bot[REDACTED]/sendMessage",
-    );
-    await expect(sending).rejects.not.toThrow("secret-token");
+  it("rejects failed or malformed messenger submissions without marking sent",async()=>{
+    const article={id:policyNews.sentimentId,title:policyNews.title,publishedAt:policyNews.time};
+    await expect(new MessengerNotifier({fetch:async()=>Response.json({}, {status:503})}).send(article)).rejects.toThrow('503');
+    await expect(new MessengerNotifier({fetch:async()=>Response.json({})}).send(article)).rejects.toThrow('missing id');
   });
 
   it("formats the source title without Telegram markup", () => {
