@@ -1,8 +1,13 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
-import { fetchOpenMarketNews, fetchResearchReportDetail, type Fetcher } from "./article";
+import { NonRetryableError } from "cloudflare:workflows";
+import { z } from "zod";
+import { fetchOpenMarketNews, fetchResearchReportDetail, readJsonResponse, type Fetcher } from "./article";
 import { dataFetcher } from "./data-fetcher";
 
-const INTERVAL_MS = 10_000;
+export const OMO_STEP_CONFIG = {
+  retries: { limit: 20, delay: "15 seconds", backoff: "constant" },
+  timeout: "15 seconds",
+} as const;
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 export interface OpenMarketParams { date: string }
@@ -41,7 +46,7 @@ export async function startOpenMarketWorkflow(
 export function cleanOpenMarketContent(content: string): string {
   return content
     .replace(/(?:其中[，,]?\s*)?(?:投标量|中标量)\s*(?:为|是|[:：])?\s*[\d,，]+(?:\.\d+)?\s*(?:万亿|亿|万)?元\s*[，,；;]?\s*/g, "")
-    .replace(/DM\s*数据显示[，,:：]?\s*/gi, "")
+    .replace(/(?:【|\[)?(?:据\s*)?DM\s*数据显示[\s\S]*$/i, "")
     .replace(/[，,；;]+([。！？])/g, "$1")
     .replace(/^[，,；;。\s]+/g, "")
     .trim();
@@ -62,64 +67,127 @@ export async function findOpenMarketBulletin(date: string, dependencies: PollDep
       continue;
     }
     const detail = result.value;
-    if (!/净投放|净回笼/.test(detail.content)) continue;
     const text = cleanOpenMarketContent(detail.content);
     if (!text || text.length > 4096) { detailErrors += 1; continue; }
+    // An unrelated central-bank headline must not become an OMO bulletin.
+    try { injectionAmount(text); } catch { continue; }
     return { articleId: article.id, text };
   }
   if (detailErrors > 0) throw new Error("Open market bulletin details unavailable");
   return null;
 }
 
-/** One query per durable checkpoint; orchestration and waiting stay outside step.do. */
-export async function runOmo(date: string, step: Pick<WorkflowStep, "do" | "sleepUntil">, dependencies: PollDependencies): Promise<OpenMarketResult> {
-  const now = dependencies.now ?? Date.now;
-  const deadline = await step.do("validate-window", { retries: { limit: 0, delay: "1 second" } }, async () => {
-    const end = Date.parse(`${date}T09:25:00+08:00`);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(end)
-      || new Date(end + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10) !== date) {
-      throw new Error("Invalid omo date");
+const operationSchema = z.object({
+  operationDate: z.string().date(),
+  operationName: z.string().nullable(),
+  duration: z.string().nullable(),
+  operationAmount: z.number().finite().nullable(),
+});
+
+/** Amounts come only from the cleaned announcement, never the API's injection rows. */
+function injectionAmount(text: string): number {
+  const amounts = [...text.matchAll(/([\d,，]+(?:\.\d+)?)\s*(万亿|亿|万)?元/g)];
+  if (!amounts.length && /(?:不开展|未开展|暂停)(?:公开市场)?(?:逆回购|操作)/.test(text)) return 0;
+  if (!amounts.length || /净投放|净回笼|到期/.test(text)) throw new Error("OMO injection amount unavailable");
+  let total = 0;
+  for (const match of amounts) {
+    const suffix = text.slice(match.index! + match[0].length);
+    if (!/^\s*(?:(?:\d+(?:\.\d+)?(?:天|日|个月|月|年)(?:期)?|隔夜)\s*)?(?:买断式逆回购|逆回购|MLF|中期借贷便利|(?:的)?(?:公开市场)?操作)/i.test(suffix)) {
+      throw new Error("OMO injection amount is ambiguous");
     }
-    return end;
+    const value = Number(match[1]!.replace(/[,，]/g, ""));
+    const scale = match[2] === "万亿" ? 10_000 : match[2] === "亿" ? 1 : match[2] === "万" ? 0.0001 : 0.00000001;
+    total += value * scale;
+  }
+  if (!Number.isFinite(total)) throw new Error("Invalid OMO injection amount");
+  return total;
+}
+
+const amountText = (value: number) => String(Number(value.toFixed(8)));
+function durationText(value: string | null): string {
+  if (!value) throw new Error("OMO maturity duration unavailable");
+  if (/^(?:隔夜|O\/N|ON|1D)$/i.test(value)) return "隔夜";
+  return value.replace(/^(\d+)D$/i, "$1天期").replace(/^(\d+)M$/i, "$1个月期")
+    .replace(/^(\d+)Y$/i, "$1年期").replace(/^(\d+)(天|日|个月|月|年)$/, "$1$2期");
+}
+
+export function buildOpenMarketText(date: string, text: string, payload: unknown): string {
+  const rows = z.array(operationSchema).parse(payload);
+  if (!rows.length) throw new Error("OMO data unavailable for today");
+  if (rows.some(row => row.operationDate !== date)) throw new Error("OMO operation date mismatch");
+  const maturities = new Map<string, { name: string; term: string; amount: number }>();
+  for (const row of rows) {
+    if (!row.operationName) throw new Error("OMO operation name unavailable");
+    // Positive API injections (including treasury deposits) are not the news amount.
+    // Repo maturities can be signed or unsigned; reverse-repo maturity always drains.
+    if (!row.operationName.includes("到期") || row.operationName === "正回购到期") continue;
+    if (row.operationAmount === null) throw new Error("OMO maturity amount unavailable");
+    const name = row.operationName.replace(/到期/g, "").trim();
+    const term = durationText(row.duration);
+    const key = `${name}/${term}`;
+    const previous = maturities.get(key);
+    maturities.set(key, { name, term, amount: (previous?.amount ?? 0) + Math.abs(row.operationAmount) });
+  }
+  const entries = [...maturities.values()];
+  // A partial upstream response must not silently become zero maturities.
+  // A day with no maturities needs an explicit zero-valued maturity record.
+  if (!entries.length) throw new Error("OMO maturity data unavailable for today");
+  const maturity = entries.reduce((sum, row) => sum + row.amount, 0);
+  const net = Number((injectionAmount(text) - maturity).toFixed(8));
+  const expiry = maturity !== 0 ? `今日有${entries.map((row, index) =>
+    `${amountText(row.amount)}亿元${row.term}${entries[index + 1]?.name === row.name ? "" : row.name}`).join("及")}到期`
+    : "今日无公开市场操作到期";
+  const balance = net === 0 ? "当日投放与回笼量持平。"
+    : `当日实现净${net > 0 ? "投放" : "回笼"}${amountText(Math.abs(net))}亿元。`;
+  return `${text.replace(/[。\s]+$/, "")}。${expiry}，${balance}`;
+}
+
+/** Exactly two checkpoints. Missing news throws so Workflows owns all retries. */
+export async function runOmo(date: string, step: Pick<WorkflowStep, "do">, dependencies: PollDependencies): Promise<OpenMarketResult> {
+  const now = dependencies.now ?? Date.now;
+  const deadline = Date.parse(`${date}T09:25:00+08:00`);
+  const bulletin = await step.do("获取并清洗央行投放公告", OMO_STEP_CONFIG, async context => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(deadline)
+      || new Date(deadline + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10) !== date) {
+      throw new NonRetryableError("Invalid omo date");
+    }
+    if (now() < deadline - 300_000) throw new Error("OMO publication window has not started");
+    const result = await queryWithinWindow(signal => findOpenMarketBulletin(date, dependencies, signal));
+    if (!result) throw new Error(`尚未获取当日央行投放公告（${date}），等待 Workflow 重试`);
+    return { ...result, attempts: context.attempt, errors: context.attempt - 1 };
   });
-  let attempts = 0, errors = 0;
-  let lastError = "";
-  for (let index = 1; ; index++) {
-    const attempt = await step.do(`poll-${index}`, {
-      retries: { limit: 0, delay: "1 second" }, timeout: "15 seconds",
-    }, async () => {
-      const started = now();
-      if (started >= deadline) return { expired: true, queried: false, error: "", bulletin: null, nextPollAt: deadline };
-      const start = deadline - 300_000;
-      if (started < start) return { expired: false, queried: false, error: "", bulletin: null, nextPollAt: start };
-      const abort = new AbortController();
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const bulletin = await Promise.race([
-          findOpenMarketBulletin(date, dependencies, abort.signal),
-          new Promise<never>((_, reject) => { timer = setTimeout(() => {
-            abort.abort(); reject(new Error("OMO query timed out"));
-          }, Math.min(INTERVAL_MS, deadline - started)); }),
-        ]);
-        return { expired: now() >= deadline, queried: true, error: "", bulletin: now() < deadline ? bulletin : null,
-          nextPollAt: Math.min(started + INTERVAL_MS, deadline) };
-      } catch (error) {
-        // Keep useful error type and status without forwarding upstream bodies or credentials.
-        const message = error instanceof Error ? error.message : "Unknown query error";
-        const status = message.match(/\b[45]\d{2}\b/)?.[0];
-        const detail = /timed out|timeout/i.test(message) ? "OMO query timed out"
-          : status ? `OMO upstream HTTP ${status}` : `OMO query failed (${error instanceof Error ? error.name : "Error"})`;
-        return { expired: now() >= deadline, queried: true, error: detail, bulletin: null,
-          nextPollAt: Math.min(started + INTERVAL_MS, deadline) };
-      } finally { clearTimeout(timer); abort.abort(); }
+  return await step.do("查询到期回笼并生成播报", OMO_STEP_CONFIG, async () => {
+    const text = await queryWithinWindow(async signal => {
+      const url = new URL(`${dependencies.apiBaseUrl.replace(/\/$/, "")}/omo`);
+      url.search = new URLSearchParams({ startDate: date, endDate: date }).toString();
+      const response = await dependencies.fetcher(url, { headers: { Accept: "application/json" }, signal });
+      return buildOpenMarketText(date, bulletin.text, await readJsonResponse(response, "OMO operations"));
     });
-    if (attempt.queried) attempts++;
-    if (attempt.error) { errors++; lastError = attempt.error; }
-    if (attempt.bulletin) return { date, status: "found", attempts, errors, ...attempt.bulletin };
-    if (attempt.expired) return await step.do("deadline-failure", { retries: { limit: 0, delay: "1 second" } }, async () => { throw new Error(
-      `央行公开市场操作播报获取失败（${date}）：截至09:25未找到符合条件的当日播报；查询${attempts}次，失败${errors}次。${lastError ? `最后错误：${lastError}` : ""}`,
-    ); });
-    await step.sleepUntil(`wait-${index}`, new Date(attempt.nextPollAt));
+    return { date, status: "found" as const, ...bulletin, text };
+  });
+
+  async function queryWithinWindow<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const expired = () => new NonRetryableError(`央行公开市场操作播报获取失败（${date}）：截至09:25未完成当日播报`);
+    if (now() >= deadline) throw expired();
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        operation(abort.signal),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => {
+          abort.abort(); reject(new Error("OMO query timed out"));
+        }, Math.min(10_000, deadline - now())); }),
+      ]);
+      if (now() >= deadline) throw expired();
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown query error";
+      const status = message.match(/\b[45]\d{2}\b/)?.[0];
+      const detail = /timed out|timeout/i.test(message) ? "OMO query timed out"
+        : status ? `OMO upstream HTTP ${status}` : `OMO query failed (${error instanceof Error ? error.name : "Error"})`;
+      if (now() >= deadline) throw new NonRetryableError(`${expired().message}；${detail}`);
+      throw new Error(detail);
+    } finally { clearTimeout(timer); abort.abort(); }
   }
 }
 
