@@ -92,32 +92,31 @@ describe("open market bulletin", () => {
       }
       return successFetcher(input);
     };
-    expect(await runOmo(date, time.step, { apiBaseUrl, fetcher, now: time.now }))
+    expect(await runOmo(date, time.step, { apiBaseUrl, fetcher }))
       .toMatchObject({ status: "found", attempts: 3, errors: 2, text: finalText });
     expect(time.waits).toEqual([15_000, 15_000]);
     expect(time.names).toEqual(["获取并清洗央行投放公告", "查询到期回笼并生成播报"]);
   });
 
-  it.each(["empty", "http-error", "invalid-json"])("stops at 09:25 without polling steps for %s", async mode => {
+  it.each(["empty", "http-error", "invalid-json"])("exhausts 20 native retries without polling steps for %s", async mode => {
     const time = clock();
     const fetcher = vi.fn(async () => mode === "empty" ? Response.json([])
       : mode === "http-error" ? new Response("private details", { status: 503 }) : new Response("invalid"));
-    await expect(runOmo(date, time.step, { apiBaseUrl, fetcher, now: time.now })).rejects.toThrow("截至09:25");
+    await expect(runOmo(date, time.step, { apiBaseUrl, fetcher })).rejects.toThrow(mode === "empty" ? "尚未获取" : mode === "http-error" ? "OMO upstream HTTP 503" : "OMO query failed");
     expect(time.now()).toBe(start + 300_000);
     expect(time.waits).toHaveLength(20);
-    expect(fetcher).toHaveBeenCalledTimes(20);
+    expect(fetcher).toHaveBeenCalledTimes(21);
     expect(time.names).toEqual(["获取并清洗央行投放公告"]);
   });
 
-  it("rejects late responses and bounds delayed starts by the original deadline", async () => {
-    const time = clock(start + 299_000);
-    const fetcher: Fetcher = async input => {
-      const response = await successFetcher(input);
-      if (String(input).includes("/news/")) time.set(start + 300_001);
-      return response;
-    };
-    await expect(runOmo(date, time.step, { apiBaseUrl, fetcher, now: time.now })).rejects.toThrow("截至09:25");
-    expect(time.waits).toHaveLength(0);
+  it("starts and completes after 09:25 using the requested date without a time cutoff", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(start + 3600_000);
+    try {
+      const time = clock(start + 3600_000);
+      expect((await runOmo(date, time.step, { apiBaseUrl, fetcher: successFetcher })).text).toBe(finalText);
+      expect(time.names).toHaveLength(2);
+      expect(time.waits).toHaveLength(0);
+    } finally { vi.useRealTimers(); }
   });
 
   it("computes the supplied result from maturities and handles signed or unsigned expiry amounts", () => {
@@ -150,11 +149,11 @@ describe("open market bulletin", () => {
       }
       return successFetcher(input);
     };
-    const result = await runOmo(date, time.step, { apiBaseUrl, fetcher, now: time.now });
+    const result = await runOmo(date, time.step, { apiBaseUrl, fetcher });
     expect(result.text).toBe(finalText);
     expect(news).toBe(1); expect(operations).toBe(2);
     time.set(start + 3600_000);
-    expect(await runOmo(date, time.step, { apiBaseUrl, fetcher, now: time.now })).toEqual(result);
+    expect(await runOmo(date, time.step, { apiBaseUrl, fetcher })).toEqual(result);
     expect(news).toBe(1); expect(operations).toBe(2);
   });
 
@@ -181,26 +180,26 @@ describe("open market bulletin", () => {
     await expect(startOpenMarketWorkflow(binding, start)).rejects.toThrow("instance missing");
   });
 
-  it("bounds a stalled request at the deadline without exposing credentials", async () => {
+  it("bounds each stalled request independently without a publication deadline", async () => {
     vi.useFakeTimers(); vi.setSystemTime(start + 299_000);
     try {
       const step = { do: async (_name: string, _config: unknown, fn: (context: { attempt: number }) => Promise<unknown>) => fn({ attempt: 1 }) } as unknown as Parameters<typeof runOmo>[1];
       const fetcher = vi.fn(async (): Promise<Response> => new Promise(() => {}));
       const pending = expect(runOmo(date, step, { apiBaseUrl, fetcher })).rejects.toThrow("OMO query timed out");
-      await vi.advanceTimersByTimeAsync(1000); await pending;
+      await vi.advanceTimersByTimeAsync(10_000); await pending;
       expect(fetcher).toHaveBeenCalledOnce();
     } finally { vi.useRealTimers(); }
   });
 
-  it.each(["2020-01-01", "invalid-date", "2026-02-31"])("invalid/expired dates fail without retries or requests: %s", async pollDate => {
+  it.each(["invalid-date", "2026-02-31"])("invalid dates fail without retries or requests: %s", async pollDate => {
     const time = clock(); const fetcher = vi.fn();
-    await expect(runOmo(pollDate, time.step, { apiBaseUrl, fetcher, now: time.now }))
-      .rejects.toThrow(pollDate === "2020-01-01" ? "截至09:25" : "Invalid omo date");
+    await expect(runOmo(pollDate, time.step, { apiBaseUrl, fetcher }))
+      .rejects.toThrow("Invalid omo date");
     expect(time.waits).toHaveLength(0);
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it.each(["2020-01-01", "invalid-date", "2026-02-31"])("platform marks expired or invalid omo as errored: %s", async pollDate => {
+  it.each(["invalid-date", "2026-02-31"])("platform marks invalid omo as errored: %s", async pollDate => {
     const id = `omo-${pollDate}-test`;
     const instance = await introspectWorkflowInstance(env.OMO_WORKFLOW, id);
     await env.OMO_WORKFLOW.create({ id, params: { date: pollDate } });

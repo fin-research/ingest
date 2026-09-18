@@ -23,7 +23,6 @@ export interface OpenMarketResult {
 interface PollDependencies {
   apiBaseUrl: string;
   fetcher: Fetcher;
-  now?: () => number;
 }
 
 export async function startOpenMarketWorkflow(
@@ -144,20 +143,18 @@ export function buildOpenMarketText(date: string, text: string, payload: unknown
 
 /** Exactly two checkpoints. Missing news throws so Workflows owns all retries. */
 export async function runOmo(date: string, step: Pick<WorkflowStep, "do">, dependencies: PollDependencies): Promise<OpenMarketResult> {
-  const now = dependencies.now ?? Date.now;
-  const deadline = Date.parse(`${date}T09:25:00+08:00`);
+  const parsedDate = Date.parse(`${date}T00:00:00Z`);
   const bulletin = await step.do("获取并清洗央行投放公告", OMO_STEP_CONFIG, async context => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(deadline)
-      || new Date(deadline + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10) !== date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsedDate)
+      || new Date(parsedDate).toISOString().slice(0, 10) !== date) {
       throw new NonRetryableError("Invalid omo date");
     }
-    if (now() < deadline - 300_000) throw new Error("OMO publication window has not started");
-    const result = await queryWithinWindow(signal => findOpenMarketBulletin(date, dependencies, signal));
+    const result = await queryWithTimeout(signal => findOpenMarketBulletin(date, dependencies, signal));
     if (!result) throw new Error(`尚未获取当日央行投放公告（${date}），等待 Workflow 重试`);
     return { ...result, attempts: context.attempt, errors: context.attempt - 1 };
   });
   return await step.do("查询到期回笼并生成播报", OMO_STEP_CONFIG, async () => {
-    const text = await queryWithinWindow(async signal => {
+    const text = await queryWithTimeout(async signal => {
       const url = new URL(`${dependencies.apiBaseUrl.replace(/\/$/, "")}/omo`);
       url.search = new URLSearchParams({ startDate: date, endDate: date }).toString();
       const response = await dependencies.fetcher(url, { headers: { Accept: "application/json" }, signal });
@@ -166,9 +163,7 @@ export async function runOmo(date: string, step: Pick<WorkflowStep, "do">, depen
     return { date, status: "found" as const, ...bulletin, text };
   });
 
-  async function queryWithinWindow<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    const expired = () => new NonRetryableError(`央行公开市场操作播报获取失败（${date}）：截至09:25未完成当日播报`);
-    if (now() >= deadline) throw expired();
+  async function queryWithTimeout<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -176,16 +171,14 @@ export async function runOmo(date: string, step: Pick<WorkflowStep, "do">, depen
         operation(abort.signal),
         new Promise<never>((_, reject) => { timer = setTimeout(() => {
           abort.abort(); reject(new Error("OMO query timed out"));
-        }, Math.min(10_000, deadline - now())); }),
+        }, 10_000); }),
       ]);
-      if (now() >= deadline) throw expired();
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown query error";
       const status = message.match(/\b[45]\d{2}\b/)?.[0];
       const detail = /timed out|timeout/i.test(message) ? "OMO query timed out"
         : status ? `OMO upstream HTTP ${status}` : `OMO query failed (${error instanceof Error ? error.name : "Error"})`;
-      if (now() >= deadline) throw new NonRetryableError(`${expired().message}；${detail}`);
       throw new Error(detail);
     } finally { clearTimeout(timer); abort.abort(); }
   }
