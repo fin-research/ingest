@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import { introspectWorkflowInstance } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
-import { buildOpenMarketText, cleanOpenMarketContent, findOpenMarketBulletin, runOmo, startOpenMarketWorkflow } from "../src/open-market";
+import { buildOpenMarketText, cleanOpenMarketContent, findOpenMarketBulletin, runOmo, runScheduledOmo, startOpenMarketWorkflow } from "../src/open-market";
 import type { Fetcher } from "../src/article";
 
 const date = "2026-09-17";
@@ -157,14 +157,37 @@ describe("open market bulletin", () => {
     expect(news).toBe(1); expect(operations).toBe(2);
   });
 
-  it("starts only at weekday 09:20 with the same daily instance ID on repeated Cron delivery", async () => {
+  it("prepares at weekday 09:10 with 09:15 and 09:20 fallbacks with the same daily instance ID on repeated Cron delivery", async () => {
     const createBatch = vi.fn(async () => []);
     const binding = { OMO_WORKFLOW: { createBatch } } as unknown as Pick<Env, "OMO_WORKFLOW">;
-    for (const value of [start, start, start - 300_000, start + 300_000, Date.parse("2026-09-19T09:20:00+08:00")]) {
+    for (const value of [start, start, start - 600_000, start - 300_000, start - 900_000, start + 300_000, Date.parse("2026-09-19T09:20:00+08:00")]) {
       await startOpenMarketWorkflow(binding, value);
     }
-    expect(createBatch).toHaveBeenCalledTimes(2);
-    expect(createBatch).toHaveBeenLastCalledWith([{ id: "omo-2026-09-17", params: { date } }]);
+    expect(createBatch).toHaveBeenCalledTimes(4);
+    expect(createBatch).toHaveBeenLastCalledWith([{ id: "omo-2026-09-17", params: { date, scheduledStart: `${date}T09:20:00+08:00` } }]);
+  });
+
+  it("waits for business time before requesting data and leaves manual runs immediate", async () => {
+    let release!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const sleepUntil = vi.fn(async (_name: string, target: Date) => {
+      expect(target.valueOf()).toBe(start);
+      await waiting;
+    });
+    const fetcher = vi.fn(successFetcher);
+    const pending = runScheduledOmo({ date, scheduledStart: `${date}T09:20:00+08:00` },
+      { ...clock().step, sleepUntil } as Parameters<typeof runScheduledOmo>[1], { apiBaseUrl, fetcher });
+    expect(fetcher).not.toHaveBeenCalled();
+    release();
+    expect((await pending).text).toBe(finalText);
+    expect(sleepUntil).toHaveBeenCalledOnce();
+    sleepUntil.mockClear();
+    expect((await runScheduledOmo({ date }, { ...clock().step, sleepUntil } as Parameters<typeof runScheduledOmo>[1],
+      { apiBaseUrl, fetcher })).text).toBe(finalText);
+    expect(sleepUntil).not.toHaveBeenCalled();
+    await expect(runScheduledOmo({ date, scheduledStart: "2026-09-18T09:20:00+08:00" },
+      { ...clock().step, sleepUntil } as Parameters<typeof runScheduledOmo>[1], { apiBaseUrl, fetcher }))
+      .rejects.toThrow("Invalid omo scheduled start");
   });
 
   it("accepts an existing daily instance after a duplicate or ambiguous create, but surfaces missing instances", async () => {

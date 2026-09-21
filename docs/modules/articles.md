@@ -27,7 +27,7 @@ AI Search research independently indexes archived R2 documents
 - R2 原始中文 Markdown 仍可能触发 `file_content_empty`，因此复用 `prepareAiSearchMarkdown` 在唯一一次存储前处理标点，AI 特征抽取仍使用原文。
 - `prepareAiSearchMarkdown` 是研报和政策共用的归档入口：去除正文前的旧 `Source / Published / URL` 等英文元数据头部；移除内联/引用式图片、HTML 图片和链接目标，保留链接文字、标题、表格及段落。正文内的“数据来源”等研究引用保留。清洗覆盖 DM 回退和已缓存的 Workflow 正文，不依赖公众号下载是否成功。
 - Markdown 使用 CommonMark 源位置处理嵌套括号、图片外层链接和引用定义；损坏公众号 URL 中的空格也须整体消费，避免留下查询参数片段。归档清洗与中文标点补空格整体幂等；历史回填不额外截断风险披露。
-- 历史研报通过 `ArchiveCleanupWorkflow`（`article-cleanup`）处理显式清单，每批至多 25 个 `report/` 对象。先备份正文与全部元数据，再提供原 ETag；版本变化时拒绝覆盖，已清洗对象可安全重放，写入保留自定义/HTTP 元数据及存储类型。纯图片文章清洗后保留标题并返回 `titleOnly` 标记。执行与验收见 [DEVELOPMENT](../DEVELOPMENT.md#历史研报正文清洗)。
+- 历史研报维护 Workflow `article-cleanup` 已退役；保留备份、清洗函数和回归测试，新归档继续自动清洗。历史证据见 [DEVELOPMENT](../DEVELOPMENT.md#历史研报正文清洗)。
 
 归档对象、检索元数据和索引完成边界只按 [研究归档协议](../../../eastmoney/docs/DATABASE.md#研究归档协议) 维护；与政策的双向关联规则见 [政策模块](policies.md)。
 

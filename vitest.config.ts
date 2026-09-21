@@ -20,11 +20,9 @@ export default defineConfig({
         r2Buckets: ["ARTICLE_BUCKET"],
         workflows: {
           OMO_WORKFLOW: { name: "omo", className: "OmoWorkflow" },
-          OPEN_MARKET_WORKFLOW: { name: "open-market", className: "OpenMarketWorkflow" },
           ARTICLE_WORKFLOW: { name: "article", className: "ArticleWorkflow" },
           TELEGRAM_WORKFLOW: { name: "telegram", className: "TelegramWorkflow" },
           POLICY_WORKFLOW: { name: "policy-aggregation", className: "PolicyWorkflow" },
-          ARCHIVE_MIGRATION_WORKFLOW: { name: "article-archive-migration", className: "ArticleArchiveMigrationWorkflow" },
         },
       },
     }),

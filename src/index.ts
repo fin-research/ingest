@@ -38,8 +38,7 @@ import { isWechatArticleLink, resolveArticleContent } from "./wechat";
 import { archivePolicyEvidence } from "./policy-archive";
 import { dataFetcher } from "./data-fetcher";
 import { startOpenMarketWorkflow } from "./open-market";
-export { ArchiveCleanupWorkflow } from "./archive-cleanup";
-export { OmoWorkflow, OpenMarketWorkflow } from "./open-market";
+export { OmoWorkflow } from "./open-market";
 
 export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
   override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {
@@ -309,6 +308,8 @@ export default {
 
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     const scheduledAt = new Date(controller.scheduledTime).toISOString();
+    console.log(JSON.stringify({ event: "ingest_cron_started", cron: controller.cron,
+      scheduledAt, startedAt: new Date().toISOString(), delayMs: Date.now() - controller.scheduledTime }));
     const results = await Promise.allSettled([
       collectResearchReports(env, scheduledAt),
       collectCentralBankNotifications(env, scheduledAt),
