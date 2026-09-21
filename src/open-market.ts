@@ -10,7 +10,7 @@ export const OMO_STEP_CONFIG = {
 } as const;
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
 
-export interface OpenMarketParams { date: string; scheduledStart?: string }
+export interface OpenMarketParams { date: string }
 export interface OpenMarketResult {
   date: string;
   status: "found" | "not_found" | "failed";
@@ -31,11 +31,11 @@ export async function startOpenMarketWorkflow(
 ): Promise<void> {
   const shanghai = new Date(scheduledTime + SHANGHAI_OFFSET_MS);
   const weekday = shanghai.getUTCDay();
-  if (weekday === 0 || weekday === 6 || shanghai.getUTCHours() !== 9 || ![10, 15, 20].includes(shanghai.getUTCMinutes())) return;
+  if (weekday === 0 || weekday === 6 || shanghai.getUTCHours() !== 9 || shanghai.getUTCMinutes() !== 20) return;
   const date = shanghai.toISOString().slice(0, 10);
   // A daily ID prevents duplicate Cron deliveries from creating another poller.
   const id = `omo-${date}`;
-  const [creation] = await Promise.allSettled([env.OMO_WORKFLOW.createBatch([{ id, params: { date, scheduledStart: `${date}T09:20:00+08:00` } }])]);
+  const [creation] = await Promise.allSettled([env.OMO_WORKFLOW.createBatch([{ id, params: { date } }])]);
   if (creation.status === "fulfilled") return;
   // Also resolves an ambiguous create response after the instance was persisted.
   const existing = await env.OMO_WORKFLOW.get(id);
@@ -189,24 +189,8 @@ export async function runOmo(date: string, step: Pick<WorkflowStep, "do">, depen
 
 export class OmoWorkflow extends WorkflowEntrypoint<Env, OpenMarketParams> {
   override async run(event: Readonly<WorkflowEvent<OpenMarketParams>>, step: WorkflowStep) {
-    return await runScheduledOmo(event.payload, step, {
+    return await runOmo(event.payload.date, step, {
       apiBaseUrl: this.env.ARTICLE_API_BASE_URL, fetcher: dataFetcher(this.env),
     });
   }
-}
-
-/** Prepare before the business time so Cron jitter does not delay instance creation. */
-export async function runScheduledOmo(
-  params: OpenMarketParams,
-  step: Pick<WorkflowStep, "do" | "sleepUntil">,
-  dependencies: PollDependencies,
-): Promise<OpenMarketResult> {
-  if (params.scheduledStart !== undefined) {
-    const target = `${params.date}T09:20:00+08:00`;
-    if (!z.string().date().safeParse(params.date).success || params.scheduledStart !== target) {
-      throw new NonRetryableError("Invalid omo scheduled start");
-    }
-    await step.sleepUntil("等待北京时间09:20", new Date(target));
-  }
-  return await runOmo(params.date, step, dependencies);
 }

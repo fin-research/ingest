@@ -4,7 +4,7 @@
 
 ## 运行入口与采集契约
 
-- [index.ts](../src/index.ts) 的 fetch 只提供 `GET /health`，其他路径返回 404；scheduled 编排研报、央行资讯与政策三条增量链路，并在工作日北京时间 09:10 预建当日公开市场播报 Workflow，09:15、09:20 幂等补建并持久等待到 09:20 执行。
+- [index.ts](../src/index.ts) 的 fetch 只提供 `GET /health`，其他路径返回 404；scheduled 编排研报、央行资讯与政策三条增量链路，并在工作日北京时间 09:20 启动当日公开市场播报 Workflow。
 - Cron 表达式与 Workflow binding 以 [wrangler.jsonc](../wrangler.jsonc) 为准；UTC `*/5 0-9 * * MON-FRI` 对应上海工作日 `[08:00, 18:00)`。
 - 列表固定 `pageSize=100` 并精确复核标签；只请求 `fields=sentimentId,newsId,title,time,tags`。公开市场播报额外请求 `important`，使用 `date` 与 `important=true` 过滤。列表为顶层 array，详情为 object，不恢复 `list/data` envelope。
 - 列表与详情统一经 [data-fetcher.ts](../src/data-fetcher.ts) 的 DATA / InternalData；`ARTICLE_API_BASE_URL` 保留生产 `/data` 前缀，不以公网匿名请求替代 binding。

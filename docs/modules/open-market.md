@@ -1,6 +1,6 @@
 # 公开市场操作播报
 
-Cron 在周一至周五北京时间 09:10 预建（09:15、09:20 幂等补建） `omo` / `OmoWorkflow`，日实例为 `omo-YYYY-MM-DD`。旧 `open-market` 和 `article-cleanup` 已退役并移除绑定。定时实例先通过 `sleepUntil` 等待到 09:20，手动指定日期的实例仍立即执行；两个业务 step 和重试策略保持不变。提前创建降低 Cron 延迟影响，但 Cloudflare 不承诺精确唤醒。`ingest_cron_started` 和 `omo_bulletin_attempt` 记录计划时间、实际时间与延迟。
+Cron 在周一至周五北京时间 09:20 创建并执行 `omo` / `OmoWorkflow`，日实例为 `omo-YYYY-MM-DD`；不提前创建实例，也不使用 `sleepUntil`。旧 `open-market` 和 `article-cleanup` 已退役并移除绑定。手动指定日期的实例仍立即执行；两个业务 step 和重试策略保持不变。`ingest_cron_started` 和 `omo_bulletin_attempt` 记录计划时间、实际时间与延迟。
 
 Workflow 只有两个顺序 step：
 

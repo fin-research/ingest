@@ -16,8 +16,12 @@ git diff --check
 - `pnpm check` 检查 Worker TypeScript 与生成的 binding 类型。
 - `pnpm test` 使用 Vitest Workers pool，不访问真实生产资源。
 - `pnpm deploy:dry` 验证打包与绑定，不发布 Worker。
-- `omo` Workflow 由现有 Cron 在工作日北京时间 09:10 预建，09:15、09:20 幂等补建；预建实例持久等待到 09:20 执行，日实例去重；固定两个业务 step，失败用 Workflow 原生 15 秒重试（最多 20 次），重试耗尽失败，不设 09:25 截止；结果由 Messenger 订阅平台事件后统一 email＋Telegram。
-- `article` Workflow 由研报采集按文章创建实例；现有 Worker Cron 先抓取、去重央行资讯，仅在有新增时为整批创建一个 `telegram` Workflow，不使用仅付费 Workers 计划可用的 Workflow schedule。两者都可在 Cloudflare Workflow 实例中逐步排查。
+- `omo` Workflow 由现有 Cron 在工作日北京时间 09:20 创建并执行，日实例去重；固定两个业务 step，失败用 Workflow 原生 15 秒重试（最多 20 次），重试耗尽失败，不设 09:25 截止；结果由 Messenger 订阅平台事件后统一 email＋Telegram。
+- `article` Workflow 由研报采集按文章创建实例；现有 Worker Cron 先抓取、去重央行资讯，仅在有新增时为整批创建一个 `telegram` Workflow，保留由新增数据驱动的创建方式。两者都可在 Cloudflare Workflow 实例中逐步排查。
+
+### 原生 Workflow Schedule 核验
+
+2026-09-21 使用独立、无业务绑定的临时 Workflow 实测原生 `schedules`。本地 dry-run 成功，但实际创建 schedule 被 Cloudflare 拒绝：HTTP `403`、code `10208`、`workflows.api.error.workflow.cron_requires_paid_plan`。当前账号须启用 Workers 付费计划后才能使用；本次未修改套餐。临时 Worker 和 Workflow 已删除。生产继续使用现有 Worker Cron；未将配置可解析视为线上调度成功。
 
 ## 资源初始化
 
