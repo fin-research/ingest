@@ -58,20 +58,18 @@ describe("open market bulletin", () => {
     }
   });
 
-  it("accepts injection-only news after checking date, title, tag and importance", async () => {
+  it.each([true, false, undefined])("accepts injection-only news with important=%s after checking date, title and tag", async important => {
     const paths: string[] = [];
     const fetcher: Fetcher = async input => {
       const url = new URL(String(input)); paths.push(url.pathname);
       if (url.pathname === "/data/news") {
-        expect(Object.fromEntries(url.searchParams)).toMatchObject({ date, tag: "经济数据&政策", important: "true", pageSize: "100" });
-        expect(url.searchParams.get("fields")).toContain("important");
+        expect(Object.fromEntries(url.searchParams)).toEqual({ date, tag: "经济数据&政策", pageSize: "100", fields: "sentimentId,newsId,title,time,tags" });
         return Response.json([
           { ...row, sentimentId: "yesterday", time: "2026-09-16T09:20:00+08:00" },
           { ...row, sentimentId: "other", title: "其他央行" },
           { ...row, sentimentId: "wrong-tag", tags: ["政策"] },
-          { ...row, sentimentId: "unimportant", important: false },
           { ...row, sentimentId: "broken-detail" },
-          { ...row, sentimentId: "unrelated" }, row,
+          { ...row, sentimentId: "unrelated" }, { ...row, important },
         ]);
       }
       if (url.pathname.endsWith("broken-detail")) return new Response(null, { status: 503 });

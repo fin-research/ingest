@@ -100,7 +100,7 @@ export async function fetchOpenMarketNews(
   fetcher: Fetcher,
 ): Promise<ArticleMetadata[]> {
   const articles = await fetchTaggedNewsList(apiBaseUrl, ECONOMIC_DATA_POLICY_TAG, fetcher, {
-    important: true, date, verifyImportant: true,
+    date,
   });
   return articles.filter((article) => article.title.startsWith("中国央行")
     && shanghaiDate(article.publishedAt) === date);
@@ -110,14 +110,13 @@ async function fetchTaggedNewsList(
   apiBaseUrl: string,
   tag: string,
   fetcher: Fetcher,
-  options: { important?: boolean; date?: string; verifyImportant?: boolean } = {},
+  options: { important?: boolean; date?: string } = {},
 ): Promise<ArticleMetadata[]> {
   const url = apiUrl(apiBaseUrl, "news");
   url.searchParams.set("tag", tag);
   url.searchParams.set("pageSize", String(NEWS_PAGE_SIZE));
   url.searchParams.set("fields", "sentimentId,newsId,title,time,tags");
   if (options.date) url.searchParams.set("date", options.date);
-  if (options.verifyImportant) url.searchParams.set("fields", "sentimentId,newsId,title,time,tags,important");
   if (options.important !== undefined) {
     url.searchParams.set("important", String(options.important));
   }
@@ -134,7 +133,6 @@ async function fetchTaggedNewsList(
 
   const articles = parsed.data
     .filter((value) => hasExactTag(value, tag))
-    .filter((value) => !options.verifyImportant || z.object({ important: z.literal(true) }).safeParse(value).success)
     .map(validateArticleMetadata);
   return deduplicateArticles(articles);
 }
