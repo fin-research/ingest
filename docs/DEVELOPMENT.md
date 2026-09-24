@@ -60,8 +60,8 @@ pnpm exec wrangler r2 bucket info article
 ## 文档维护
 
 - 新命令或交付流程更新本文件。
-- 调度依赖更新 `ARCHITECTURE.md`，Workflow 步骤更新目标模块；新增模块更新 [INDEX](INDEX.md)。
-- D1 幂等与 migration 更新 `DATABASE.md`；跨仓库表、归档协议与 AI 变更更新 [项目组所有方](../../eastmoney/docs/INDEX.md#维护约定)。
+- 调度依赖更新 `ARCHITECTURE.md`，Workflow 步骤更新目标模块；新增模块在 [AGENTS](../AGENTS.md#context-routing) 登记文档入口。
+- D1 幂等与 migration 更新 `DATABASE.md`；跨仓库表、归档协议与 AI 变更更新[项目组对应共享专题](../../eastmoney/AGENTS.md#context-routing)。
 - Secret、权限或外部校验更新 `SECURITY.md`。
 
 ## 权限专项验证
