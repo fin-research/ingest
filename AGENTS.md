@@ -56,7 +56,7 @@
 
 ## Context Routing
 
-跨项目执行与工作树规则见 [项目组 AGENTS](../eastmoney/AGENTS.md)，未在上下文中时读取一次。先按 [docs/INDEX.md](docs/INDEX.md) 选择研报、政策、Telegram 或调度模块，再按影响加读 DATABASE、SECURITY、DEVELOPMENT。
+跨项目执行与工作树规则见 [项目组 AGENTS](../eastmoney/AGENTS.md)，未在上下文中时读取一次。按任务选读：Cron、DATA 契约和 Workflow 启动读 [ARCHITECTURE](docs/ARCHITECTURE.md)；研报正文、公众号、特征与归档读[研报模块](docs/modules/articles.md)；政策队列、归并和研报关联读[政策模块](docs/modules/policies.md)；公开市场操作播报读[公开市场播报](docs/modules/open-market.md)；央行资讯与 Telegram 读[通知模块](docs/modules/telegram.md)。D1 幂等/migration 加读 [DATABASE](docs/DATABASE.md)，Secret/日志加读 [SECURITY](docs/SECURITY.md)，验证与 Git 自动部署加读 [DEVELOPMENT](docs/DEVELOPMENT.md)。
 
 跨服务变化才读 [共享架构](../eastmoney/docs/ARCHITECTURE.md)，共享表或归档变化才读 [共享数据库](../eastmoney/docs/DATABASE.md)，AI 变化才读 [共享 AI](../eastmoney/docs/AI.md)。不要默认读全量文档，跨模块仅加读受影响部分，不重复读取已有上下文。
 
