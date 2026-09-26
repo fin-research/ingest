@@ -10,5 +10,3 @@ Workflow 只有两个顺序 step：
 两个 step 都使用 Workflow 原生 `retries: { limit: 20, delay: "15 seconds", backoff: "constant" }`，即首次执行后最多 20 次重试；无循环 step 和 sleep step。不设 09:25 或其他运行时段截止；延迟启动、09:25 后正文发布及手动按日期运行均可正常执行。每次请求最长 10 秒，失败由平台恒定延迟重试，耗尽后失败。日期参数无效才使用 `NonRetryableError`。完成的第一步在第二步重试时直接复用。
 
 最终继续返回日期、`status=found`、正文 `text`、文章 ID、第一步尝试/失败次数；Messenger 仍消费 `text`。Workflow 内没有通知调用，平台成功/失败事件由 Messenger 统一投递。
-
-测试覆盖两步编排、15 秒原生重试配置、新闻过滤、正文截断、净额及单位计算、真实 2026-09-18 样本、缺失/跨日数据、09:25 后运行及悬挂请求、checkpoint 复用、Cron 幂等与真实 Workers runtime 失败状态。

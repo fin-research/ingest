@@ -6,27 +6,11 @@
 
 运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、四个业务 Workflow 和 R2 `article`。AI Search `research` 独立同步 R2，Worker 不绑定 AI Search。
 
-## Repository Structure
-
-- `src/index.ts`：Worker fetch/scheduled 入口与 Article、Telegram、Policy 三类 Workflow。
-- `src/open-market.ts`：工作日 09:20 启动的公开市场操作播报，两步分别获取投放公告、查询到期并计算净额，使用 Workflow 原生重试。
-- `src/article.ts`：外部文章 API 契约、校验、Markdown 与稳定 key。
-- `src/ingest.ts`：批量查重、仅新增写入、Workflow 启动和失败回滚。
-- `src/policy.ts`：中央政策队列认领、AI 聚合、双向研报关联和 D1 写入。
-- `src/wechat.ts`：公众号直连下载、Markdown 转换和风险披露清洗。
-- `src/markdown-cleanup.ts`：归档头部、Markdown 图片与链接清洗；保留链接文字与正文格式。
-- `src/archive-cleanup.ts`：按备份清单和 ETag 手动清洗历史研报，保留 R2 元数据，不由 Cron 触发。
-- `src/feature-extraction.ts`：结构化特征 Schema、Prompt 和 D1 写入。
-- `src/ai-gateway.ts`：AI Gateway 适配器。
-- `src/policy-archive.ts`：PolicyWorkflow 使用的政策 Markdown、元数据与 R2 归档。
-- `migrations/`：D1 migration。
-- `tests/`：Vitest / Workers runtime 测试。
-
 ## Mandatory Rules
 
 - 项目必须保持纯 TypeScript；不得新增 Python、本地采集器、SQLite 或 launchd 任务。
 - 修改前搜索现有 adapter、校验器和测试；不要绕过 `article.ts`、`ai-gateway.ts` 或既有 Workflow 步骤直接实现重复逻辑。
-- Cron 固定为 `*/5 0-9 * * MON-FRI`（UTC），即北京时间工作日 `[08:00, 18:00)` 每 5 分钟；09:20 启动当日 `OmoWorkflow`（omo），两个 step 使用原生恒定 15 秒失败重试、最多重试 20 次，重试耗尽则明确失败，不设 09:25 截止。
+- 工作日采集 Cron 和 09:20 的公开市场播报使用 `wrangler.jsonc` 中的既有调度；步骤与重试规则见[公开市场播报](docs/modules/open-market.md)。
 - 列表固定请求 `tag=市场解读&pageSize=100`，并再次执行精确标签过滤。
 - 政策列表固定请求 `tag=中央政策&pageSize=100`，并再次执行精确标签过滤；政策归并必须由 `PolicyWorkflow` 完成。
 - `ARTICLE_API_BASE_URL` 固定为 `https://eastmoney.hasbai.xyz/data`，统一读取 `/data/news` 与详情路由。
