@@ -1,4 +1,5 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
+import { scheduledTradingDay } from "./trading-calendar";
 
 import {
   articleObjectKey,
@@ -310,6 +311,7 @@ export default {
     const scheduledAt = new Date(controller.scheduledTime).toISOString();
     console.log(JSON.stringify({ event: "ingest_cron_started", cron: controller.cron,
       scheduledAt, startedAt: new Date().toISOString(), delayMs: Date.now() - controller.scheduledTime }));
+    if (!await scheduledTradingDay(env, controller.scheduledTime)) return;
     const results = await Promise.allSettled([
       collectResearchReports(env, scheduledAt),
       collectCentralBankNotifications(env, scheduledAt),

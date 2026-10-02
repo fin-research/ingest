@@ -1,6 +1,6 @@
 # 公开市场操作播报
 
-Cron 在周一至周五北京时间 09:20 创建并执行 `omo` / `OmoWorkflow`，日实例为 `omo-YYYY-MM-DD`；不提前创建实例，也不使用 `sleepUntil`。旧 `open-market` 和 `article-cleanup` 已退役并移除绑定。手动指定日期的实例仍立即执行；两个业务 step 和重试策略保持不变。`ingest_cron_started` 和 `omo_bulletin_attempt` 记录计划时间、实际时间与延迟。
+Cron 在周一至周五的交易日北京时间 09:20 创建并执行 `omo` / `OmoWorkflow`，日实例为 `omo-YYYY-MM-DD`；不提前创建实例，也不使用 `sleepUntil`。旧 `open-market` 和 `article-cleanup` 已退役并移除绑定。手动指定日期的实例仍立即执行；两个业务 step 和重试策略保持不变。`ingest_cron_started` 和 `omo_bulletin_attempt` 记录计划时间、实际时间与延迟。
 
 Workflow 只有两个顺序 step：
 
