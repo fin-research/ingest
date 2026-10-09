@@ -1,122 +1,62 @@
 import { describe, expect, it } from "vitest";
-import { type ArticleWorkflowParams } from "../src/article";
-import { articleDispatchBatches, rotatingSlice, CloudflareArticleWorkflowLauncher, WorkflowDispatchError } from "../src/ingest";
+import { type ArticleMetadata, validateArticleMetadata } from "../src/article";
+import { CloudflareArticleWorkflowLauncher } from "../src/ingest";
 
-const article = { id: "A", title: "订阅文字研报", publishedAt: "2026-10-01T00:00:00Z",
-  source: "wechat" as const, sourceUrl: "https://mp.weixin.qq.com/s?__biz=test&mid=1&idx=1&sn=test" };
-
+const article = { id: "A", title: "研报", publishedAt: "2026-10-01T00:00:00Z" };
 class WorkflowStub {
   states = new Map<string, string>();
-  batches: ArticleWorkflowParams[][] = [];
+  batches: ArticleMetadata[][] = [];
   failCreate = false;
-  failStatus = false;
-  restarts = 0;
-  getCalls = 0;
-  async create(option: { id: string; params: ArticleWorkflowParams }) {
-    const created = await this.createBatch([option]);
-    if (!created[0]) throw new Error("instance already exists");
-    return created[0];
-  }
-  async createBatch(options: { id: string; params: ArticleWorkflowParams }[]) {
+  async createBatch(options: { id: string; params: ArticleMetadata }[]) {
     if (this.failCreate) throw new Error("create transport failure");
     const created = options.filter((option) => !this.states.has(option.id));
     for (const option of created) this.states.set(option.id, "queued");
     this.batches.push(created.map((option) => option.params));
     return created.map((option) => ({ id: option.id }));
   }
-  async get(id: string) {
-    this.getCalls++;
-    return { id,
-      status: async () => {
-        if (this.failStatus) throw new Error("status transport failure");
-        if (!this.states.has(id)) throw new Error("instance.not_found");
-        return { status: this.states.get(id) };
-      },
-      restart: async () => {
-        this.restarts++; this.states.set(id, "queued");
-      },
-    };
-  }
   launcher() { return new CloudflareArticleWorkflowLauncher(this as unknown as Env["ARTICLE_WORKFLOW"]); }
 }
 
-describe("article dispatch reconciliation", () => {
-  it("bounds each recovery scan and rotates beyond old running records", () => {
-    const rows = Array.from({ length: 43 }, (_, index) => index);
-    const seen = new Set<number>();
-    for (let index = 0; index < 43; index++) {
-      const selected = rotatingSlice(rows, 5, new Date(Date.UTC(2026, 9, 9, 0, index * 5)).toISOString());
-      expect(selected).toHaveLength(5); selected.forEach((value) => seen.add(value));
-    }
-    expect(seen.size).toBe(43);
-  });
-  it("splits by total UTF-8 RPC bytes as well as count and preserves each full text", () => {
-    const rows = Array.from({ length: 42 }, (_, index) => ({ ...article, id: String(index), subscriptionContent: "中".repeat(20_000) }));
-    const batches = articleDispatchBatches(rows);
-    expect(batches.length).toBeGreaterThan(1);
-    expect(batches.flat()).toEqual(rows);
-    for (const batch of batches) expect(new TextEncoder().encode(JSON.stringify(batch.map((params) => ({ id: `article-${params.id}`, params })))).byteLength).toBeLessThan(900 * 1024);
-    expect(articleDispatchBatches(Array.from({ length: 101 }, (_, index) => ({ ...article, id: String(index) }))).map((batch) => batch.length)).toEqual([100, 1]);
-  });
-  it("recovers an uncertain creation on the next scan, including an article outside the current list", async () => {
-    const binding = new WorkflowStub(); binding.failCreate = true; binding.failStatus = true;
-    const launcher = binding.launcher();
-    let error: unknown;
-    try { await launcher.start([{ ...article, subscriptionContent: "已校验快照" }]); } catch (value) { error = value; }
-    expect(error).toBeInstanceOf(WorkflowDispatchError);
-    expect((error as WorkflowDispatchError).retainedArticleIds).toEqual(new Set(["A"]));
-    binding.failCreate = false; binding.failStatus = false;
-    await launcher.reconcile([article], "https://eastmoney.hasbai.xyz/data", async () => Response.json({ content: "恢复的DM正文", link: "https://example.com/wrong" }));
-    expect(binding.batches).toEqual([[{ ...article, subscriptionContent: "恢复的DM正文" }]]);
-  });
-
-  it.each(["errored", "terminated"])("retains %s instances across repeated scans without restarting them", async (status) => {
-    const binding = new WorkflowStub(); binding.states.set("article-A", status);
-    const news = { id: "news", newsId: "N", title: "空正文news", publishedAt: article.publishedAt };
-    binding.states.set("article-news", status);
-    const launcher = binding.launcher();
-    await expect(launcher.start([{ ...article, subscriptionContent: "正文" }])).rejects.toBeInstanceOf(WorkflowDispatchError);
-    await launcher.reconcile([article, news], "https://eastmoney.hasbai.xyz/data");
-    await launcher.reconcile([article, news], "https://eastmoney.hasbai.xyz/data");
-    expect(binding.restarts).toBe(0);
-    expect(binding.states.get("article-A")).toBe(status);
-    expect(binding.states.get("article-news")).toBe(status);
-    expect(binding.batches).toEqual([[]]);
-  });
-
-  it("retains the whole batch after uncertain creation without spending status requests", async () => {
-    const binding = new WorkflowStub(); binding.states.set("article-A", "running"); binding.failCreate = true;
-    const params = [{ ...article, subscriptionContent: "正文" }, { ...article, id: "B", subscriptionContent: "另一篇正文" }];
-    await expect(binding.launcher().start(params)).rejects.toMatchObject({ retainedArticleIds: new Set(["A", "B"]) });
-    expect(binding.getCalls).toBe(0);
-  });
-
-  it("confirms a lost create response during the next bounded reconciliation", async () => {
-    const binding = new WorkflowStub(); binding.states.set("article-A", "running"); binding.failCreate = true;
-    const launcher = binding.launcher();
-    await expect(launcher.start([{ ...article, subscriptionContent: "正文" }])).rejects.toBeInstanceOf(WorkflowDispatchError);
-    await launcher.reconcile([article], "https://eastmoney.hasbai.xyz/data");
-    expect(binding.states.get("article-A")).toBe("running");
-  });
-
-  it.each(["unknown", "status transport failure"])("retains claims on %s without creating or restarting instances", async (status) => {
-    const binding = new WorkflowStub(); binding.states.set("article-A", "unknown");
-    binding.failStatus = status === "status transport failure";
-    const launcher = binding.launcher();
-    await expect(launcher.start([{ ...article, subscriptionContent: "正文" }])).rejects.toMatchObject({ retainedArticleIds: new Set(["A"]) });
-    await launcher.reconcile([article], "https://eastmoney.hasbai.xyz/data");
-    expect(binding.restarts).toBe(0);
-    expect(binding.batches).toEqual([[]]);
-  });
-
-  it("bounds actual reconciliation to five candidates and does not inspect 100 IDs on creation error", async () => {
+describe("direct article workflow dispatch", () => {
+  it("passes only metadata with stable IDs and launches an empty list without an API request", async () => {
     const binding = new WorkflowStub();
-    const rows = Array.from({ length: 100 }, (_, index) => ({ ...article, id: String(index), subscriptionContent: "正文" }));
-    for (const row of rows) binding.states.set(`article-${row.id}`, "running");
-    await binding.launcher().reconcile(rows, "https://eastmoney.hasbai.xyz/data");
-    expect(binding.getCalls).toBe(5);
-    binding.getCalls = 0; binding.failCreate = true;
-    await expect(binding.launcher().start(rows)).rejects.toBeInstanceOf(WorkflowDispatchError);
-    expect(binding.getCalls).toBe(0);
+    expect(await binding.launcher().start([])).toEqual([]);
+    expect(binding.batches).toEqual([]);
+    expect(await binding.launcher().start([article])).toEqual(["article-A"]);
+    expect(binding.batches).toEqual([[article]]);
+  });
+
+  it.each(["queued", "running", "errored", "terminated", "complete"])("does not query or restart existing %s instances on repeated scans", async (status) => {
+    // No get/status/restart methods are available: direct dispatch must not call them.
+    const binding = new WorkflowStub(); binding.states.set("article-A", status);
+    const launcher = binding.launcher();
+    expect(await launcher.start([article])).toEqual([]);
+    expect(await launcher.start([article])).toEqual([]);
+    expect(binding.states.get("article-A")).toBe(status);
+  });
+
+  it("accepts a partial createBatch response and still launches new IDs", async () => {
+    const binding = new WorkflowStub(); binding.states.set("article-A", "errored");
+    expect(await binding.launcher().start([article, { ...article, id: "B" }])).toEqual(["article-B"]);
+    expect(binding.batches).toEqual([[{ ...article, id: "B" }]]);
+  });
+
+  it("surfaces a create transport failure without status scans or automatic recovery", async () => {
+    const binding = new WorkflowStub(); binding.failCreate = true;
+    await expect(binding.launcher().start([article])).rejects.toThrow("create transport failure");
+  });
+
+  it("keeps long Unicode metadata below the batch RPC byte limit without changing its contents", async () => {
+    const sourceUrl = "https://mp.weixin.qq.com/s?__biz=test&mid=1&idx=1&sn=test&extra=" + "中".repeat(4000);
+    const articles = Array.from({ length: 100 }, (_, index) => validateArticleMetadata({
+      id: `W${index}`, title: "中".repeat(500), time: article.publishedAt, source: "wechat", sourceUrl,
+    }));
+    const binding = new WorkflowStub();
+    expect(await binding.launcher().start(articles)).toHaveLength(100);
+    expect(binding.batches.flat()).toEqual(articles);
+    expect(binding.batches.length).toBeGreaterThan(1);
+    for (const batch of binding.batches) {
+      expect(new TextEncoder().encode(JSON.stringify(batch.map((params) => ({ id: `article-${params.id}`, params })))).byteLength).toBeLessThan(900 * 1024);
+    }
   });
 });

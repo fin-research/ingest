@@ -22,19 +22,6 @@ export interface ArticleMetadata {
   sourceUrl?: string;
 }
 
-export interface ArticleWorkflowParams extends ArticleMetadata {
-  /** Verified DM text snapshot; never stored in D1. */
-  subscriptionContent?: string;
-}
-
-const MAX_WORKFLOW_PAYLOAD_BYTES = 1024 * 1024;
-
-export function assertWorkflowPayloadFits(params: ArticleWorkflowParams): void {
-  if (new TextEncoder().encode(JSON.stringify(params)).byteLength >= MAX_WORKFLOW_PAYLOAD_BYTES) {
-    throw new Error("article Workflow payload exceeds 1 MiB");
-  }
-}
-
 export function articleDedupeKey(article: ArticleMetadata): string {
   return JSON.stringify([article.title.trim(), shanghaiDate(article.publishedAt)]);
 }

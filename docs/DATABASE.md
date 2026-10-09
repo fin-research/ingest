@@ -33,11 +33,11 @@ D1 schema 以 [migrations](../migrations) 为事实来源。本文件只维护 I
 ## 写入规则
 
 - 轮询以每组20个候选查询现有ID和候选日期、标题，避免D1参数上限；不读取正文。
-- 新记录多实例批最多100个且序列化总量最多900KiB，大单篇使用create并受单实例payload限制，使用 `INSERT … SELECT … WHERE NOT EXISTS` 同时原子保护标题/上海自然日，`ON CONFLICT(id) DO NOTHING` 保护ID。无需改schema或清理历史重复。
-- 已存在文章在普通轮询中不更新，避免每五分钟写放大。
-- Workflow 批量启动失败时保留全部新增ID，由后续对账恢复；不删除可能正被另一轮Cron恢复的记录。
-- 每轮按时间轮转对账最多5条2026-10-01以来 `prompt_version IS NULL` 的未特征化记录，明确缺实例才重建；状态查询失败下轮继续对账，不依赖当前列表窗口。已有实例保留，失败或人工终止状态不由Cron自动重启；Workflow步骤重试耗尽后按需人工恢复。
-- 订阅首次insert保存列表长link；news首次insert不保存link，仍由旧详情步骤补充。DM正文快照只在Workflow参数中，不写D1。
+- Cron去重后直接每批最多100条元数据启动Workflow，不在采集端预占D1记录。
+- ArticleWorkflow第一步使用 `INSERT … SELECT … WHERE NOT EXISTS` 原子保护标题/上海自然日，`ON CONFLICT(id) DO NOTHING` 保护ID。相同ID步骤重试可继续，不同ID重复则结束Workflow；不修改已有元数据。无需改schema或清理历史重复。
+- 已存在文章在普通轮询中不更新，避免每五分钟写放大；不扫描未特征化记录，不对账、自动恢复或重启已有实例。
+- Workflow内订阅首次insert保存列表长link；news首次insert不保存link，仍由旧详情步骤补充。正文在Workflow内读取，不作为启动参数、不写D1。
+- 元数据已保存后，正文为空或最终失败仍保留记录供普通列表查重；Workflow步骤内有限重试耗尽后按需人工处理。
 - 文章 link 只有为空或发生变化时更新。
 - Telegram 抓取在 Workflow 外按 `telegram_delivery.article_id` 去重；无新增时不创建 Workflow。新增批次只创建一个 Telegram Workflow，并依次执行“入库”“发送”两个可重试步骤。
 

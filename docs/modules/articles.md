@@ -6,14 +6,17 @@
 
 每轮批量查询已有 ID 与相同标题、上海自然日。标题仅去除首尾空白，保留内部文字及标点；SQL与JavaScript采用相同空白集合。写入使用同条 `INSERT … SELECT … WHERE NOT EXISTS` 原子检查，防止两来源或并发轮询重复。历史文章与人工关系不迁移、不删除；已存在文章不因普通轮询更新。实例 ID 使用稳定 ASCII `article-{articleId}`，不能使用标题。
 
-订阅候选每轮轮转最多8篇、按最多4路并发读取DM详情正文，非空正文快照随Workflow参数传入；完整JSON按UTF-8计量须小于1MiB，空正文、请求失败、超限不写入D1、不截断，后续轮询可以重试。DM只保留可提取文字，不包含图片/图表；图片型PPT可能仅有提示文字，本链路不执行OCR。
+去重后直接启动Workflow，元数据批次最多100条、序列化最多900KiB，Cron不写D1、不预抓正文，不做实例对账或自动恢复。实例已存在时保持原状态；创建请求失败由下一轮普通列表扫描再尝试，未创建的文章没有D1预占记录。
 
-每批最多100条且序列化总量最多900KiB（为1MiB RPC上限预留封装空间），大单篇用单实例create；先写入再启动；后批失败不回滚前批。启动异常按实例ID对账，保留全部本批新增行，后续轮询恢复；避免另一个Cron已恢复实例时误删文章。每轮先读取2026-10-01以来的 `prompt_version IS NULL` 记录，按调度时间轮转对账最多5条，限制共享Cron子请求预算，明确不存在时重建。已有实例均保留，不自动重启失败或人工终止实例；暂时故障由Workflow步骤内有限重试处理，耗尽后按需人工恢复，避免空正文每轮重跑和重复失败通知。首次订阅插入已保存列表长URL、news插入的link为空，可据此恢复未启动记录；已有实例不改来源。恢复不依赖当前100条列表窗口，也不受列表接口失败阻断。
+Workflow第一步存D1元数据：相同ID允许步骤重试继续，不同ID重复标题和日期则返回`duplicate`并结束，避免并发重复处理。元数据已保存后，空正文或最终失败仍保留记录，由后续列表查重跳过；Workflow只有步骤内有限重试，耗尽后按需人工处理。
+
+DM只保留可提取文字，不包含图片/图表；图片型PPT可能仅有提示文字，本链路不执行OCR。
 
 ## ArticleWorkflow
 
 ```text
-DM detail
+D1 article metadata (atomic title/date deduplication)
+ → DM detail
  → optional WeChat download and cleanup
  → AI feature extraction
  → D1 article + keyword
@@ -25,7 +28,7 @@ DM detail
 AI Search research independently indexes archived R2 documents
 ```
 
-订阅分支为：预抓DM正文快照 → `prepare subscribed article from DM` → 共同AI/特征/政策关联/R2步骤；直接使用列表长URL，跳过公众号网络抓取。缺省source的旧Workflow参数继续走上述news链路。
+订阅分支在Workflow内获取DM正文，直接使用列表长URL，跳过公众号网络抓取；随后复用共同AI/特征/政策关联/R2步骤。缺省source的旧Workflow参数继续走上述news链路。此前已创建实例的额外正文快照参数不再作为必需条件。
 
 - DM 详情步骤幂等更新原文 link。
 - 公众号下载是独立可重试步骤；失败回退 DM 已清洗正文。
@@ -42,7 +45,7 @@ AI Search research independently indexes archived R2 documents
 ## 实现与验证
 
 - [article.ts](../../src/article.ts)：列表/详情契约、日期和稳定 key。
-- [ingest.ts](../../src/ingest.ts)：查重、只写新增、Workflow 分发与恢复。
+- [ingest.ts](../../src/ingest.ts)：列表查重、直接启动Workflow和Workflow元数据存储。
 - [index.ts](../../src/index.ts)：ArticleWorkflow 步骤；[wechat.ts](../../src/wechat.ts)：公众号下载和清洗。
 - [feature-extraction.ts](../../src/feature-extraction.ts)：Prompt / Zod 特征及关键词覆盖。
 - [tests](../../tests)：按 article、ingest、feature-extraction、wechat 与 Workflow 相关测试选择；默认完整检查见 [DEVELOPMENT](../DEVELOPMENT.md)。

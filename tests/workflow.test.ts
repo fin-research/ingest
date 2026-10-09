@@ -2,13 +2,17 @@
 
 import { env } from "cloudflare:workers";
 import { introspectWorkflowInstance } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { D1ArticleRepository, runCollection, storeArticleMetadata } from "../src/ingest";
 
 declare module "cloudflare:workers" {
   interface ProvidedEnv extends Env {}
 }
 
 describe("article workflow steps", () => {
+  beforeEach(async () => {
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS article (id TEXT PRIMARY KEY, news_id TEXT, title TEXT NOT NULL, published_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, link TEXT, prompt_version TEXT)").run();
+  });
   it("archives without an AI Search binding", () => {
     expect(Object.keys(env).some(key => key.endsWith("_SEARCH"))).toBe(false);
   });
@@ -64,6 +68,7 @@ describe("article workflow steps", () => {
       });
 
       await expect(instance.waitForStatus("complete")).resolves.toBeUndefined();
+      expect(await env.DB.prepare("SELECT title FROM article WHERE id = ?").bind(instanceId).first("title")).toBe("测试文章");
       await expect(
         instance.waitForStepResult({ name: "download WeChat article" }),
       ).resolves.toBeInstanceOf(ReadableStream);
@@ -93,10 +98,11 @@ describe("article workflow steps", () => {
     const instanceId = "workflow-subscribed-dm";
     const instance = await introspectWorkflowInstance(env.ARTICLE_WORKFLOW, instanceId);
     const sourceUrl = "https://mp.weixin.qq.com/s?__biz=test&mid=1&idx=1&sn=test";
-    await env.DB.prepare("CREATE TABLE IF NOT EXISTS article (id TEXT PRIMARY KEY, link TEXT, updated_at TEXT)").run();
-    await env.DB.prepare("INSERT INTO article (id) VALUES (?)").bind(instanceId).run();
     try {
       await instance.modify(async (modifier) => {
+        await modifier.mockStepResult({ name: "download article from DM" }, stream(JSON.stringify({
+          content: "假期文字正文。", link: "https://mp.weixin.qq.com/s/unrelated",
+        })));
         await modifier.mockStepResult({ name: "extract article features with Responses API" }, {
           title: "假期订阅研报", author: "关注公众号", summary: "文字研报摘要", importance: 60,
           keywords: [{ topic: "资金面", fact: "事实", interpretation: "解读", impact: "影响" }],
@@ -106,13 +112,50 @@ describe("article workflow steps", () => {
       });
       await env.ARTICLE_WORKFLOW.create({ id: instanceId, params: {
         id: instanceId, title: "假期订阅研报", publishedAt: "2026-10-01T23:00:00Z",
-        source: "wechat", sourceUrl, subscriptionContent: "假期文字正文。",
+        source: "wechat", sourceUrl,
       } });
       await instance.waitForStatus("complete");
-      expect(await instance.waitForStepResult({ name: "prepare subscribed article from DM" })).toBeInstanceOf(ReadableStream);
+      expect(await instance.waitForStepResult({ name: "store article metadata in D1" })).toBe(true);
       const archived = await env.ARTICLE_BUCKET.get("report/2026-10-02/假期订阅研报.md");
       expect(await archived?.text()).toBe("# 假期订阅研报\n\n假期文字正文。 \n");
       expect(await env.DB.prepare("SELECT link FROM article WHERE id = ?").bind(instanceId).first("link")).toBe(sourceUrl);
+    } finally { await instance.dispose(); }
+  });
+
+  it("finishes a title-date duplicate before downloading text or calling AI", async () => {
+    const article = { id: "winner", title: "并发同标题", publishedAt: "2026-10-01T10:00:00+08:00" };
+    await storeArticleMetadata(env.DB, article, article.publishedAt);
+    const instanceId = "duplicate-workflow";
+    const instance = await introspectWorkflowInstance(env.ARTICLE_WORKFLOW, instanceId);
+    try {
+      // No data binding or mocked downstream steps: a duplicate must stop immediately.
+      await env.ARTICLE_WORKFLOW.create({ id: instanceId, params: { ...article, id: "loser" } });
+      await instance.waitForStatus("complete");
+      expect((await (await env.ARTICLE_WORKFLOW.get(instanceId)).status()).output).toEqual({ articleId: "loser", status: "duplicate" });
+      expect(await env.DB.prepare("SELECT id FROM article WHERE id = 'loser'").first()).toBeNull();
+    } finally { await instance.dispose(); }
+  });
+
+  it("retains metadata after empty text fails so normal collection does not launch it again", async () => {
+    const instanceId = "empty-body-workflow";
+    const sourceUrl = "https://mp.weixin.qq.com/s?__biz=test&mid=1&idx=1&sn=test";
+    const article = { id: instanceId, title: "空正文文章", publishedAt: "2026-10-01T10:00:00+08:00", source: "wechat" as const, sourceUrl };
+    const instance = await introspectWorkflowInstance(env.ARTICLE_WORKFLOW, instanceId);
+    try {
+      await instance.modify(async (modifier) => {
+        await modifier.mockStepResult({ name: "download article from DM" }, stream(JSON.stringify({ content: "", link: sourceUrl })));
+      });
+      await env.ARTICLE_WORKFLOW.create({ id: instanceId, params: article });
+      await instance.waitForStatus("errored");
+      expect(await env.DB.prepare("SELECT title FROM article WHERE id = ?").bind(article.id).first("title")).toBe(article.title);
+      let launches = 0;
+      expect(await runCollection({ apiBaseUrl: "https://eastmoney.hasbai.xyz/data", repository: new D1ArticleRepository(env.DB),
+        workflow: { async start() { launches++; return []; } },
+        fetcher: async (input) => Response.json(new URL(String(input)).pathname.endsWith("/news") ? [] : [{
+          sentimentId: article.id, title: article.title, time: article.publishedAt, accountName: "关注公众号", url: sourceUrl,
+        }]),
+      })).toMatchObject({ existing: 1, workflows: 0 });
+      expect(launches).toBe(0);
     } finally { await instance.dispose(); }
   });
 });

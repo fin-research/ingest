@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   addChinesePunctuationSpaces,
-  assertWorkflowPayloadFits,
   articleObjectKey,
   buildArticleMarkdown,
   fetchCentralPolicyNews,
@@ -183,13 +182,6 @@ describe("research report helpers", () => {
     expect(validateArticleMetadata(article)).not.toHaveProperty("source");
     expect(() => validateArticleMetadata({ ...article, source: "wechat", sourceUrl: "https://mp.weixin.qq.com/s/short" })).toThrow("long URL");
     await expect(fetchSubscribedWechatList("https://eastmoney.hasbai.xyz/data", async () => Response.json({ list: [] }))).rejects.toThrow();
-  });
-
-  it("checks the complete UTF-8 JSON payload rather than character count or body alone", () => {
-    const metadata = { id: "A", title: "标题", publishedAt: "2026-10-01T10:00:00+08:00" };
-    expect(() => assertWorkflowPayloadFits({ ...metadata, subscriptionContent: "中".repeat(340_000) })).not.toThrow();
-    expect(() => assertWorkflowPayloadFits({ ...metadata, subscriptionContent: "中".repeat(350_000) })).toThrow("1 MiB");
-    expect(() => assertWorkflowPayloadFits({ ...metadata, subscriptionContent: "\n".repeat(530_000) })).toThrow("1 MiB");
   });
 
   it("only backfills October onward by Shanghai date, including UTC dates crossing midnight", async () => {

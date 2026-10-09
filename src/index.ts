@@ -7,8 +7,6 @@ import {
   fetchResearchReportDetail,
   prepareAiSearchMarkdown,
   type ArticleMetadata,
-  type ArticleWorkflowParams,
-  assertWorkflowPayloadFits,
   validateArticleDetail,
   validateArticleMetadata,
 } from "./article";
@@ -19,7 +17,7 @@ import {
   extractArticleFeatures,
   saveArticleFeatures,
 } from "./feature-extraction";
-import { collectResearchReports, updateArticleLink } from "./ingest";
+import { collectResearchReports, storeArticleMetadata, updateArticleLink } from "./ingest";
 import {
   associateArticleWithPolicies,
   associatePoliciesWithArticles,
@@ -43,26 +41,27 @@ import { dataFetcher } from "./data-fetcher";
 import { startOpenMarketWorkflow } from "./open-market";
 export { OmoWorkflow } from "./open-market";
 
-export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleWorkflowParams> {
-  override async run(event: Readonly<WorkflowEvent<ArticleWorkflowParams>>, step: WorkflowStep) {
+export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
+  override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {
     const article = validateArticleMetadata({
       ...event.payload,
       time: event.payload.publishedAt,
     });
     const key = articleObjectKey(article);
 
-    if (article.source === "wechat") assertWorkflowPayloadFits(event.payload);
-    const detailStream = article.source === "wechat"
-      ? await step.do("prepare subscribed article from DM", async () => {
-          const detail = validateArticleDetail({ content: event.payload.subscriptionContent, link: article.sourceUrl });
-          await updateArticleLink(this.env.DB, article.id, article.sourceUrl!);
-          return new Blob([JSON.stringify(detail)]).stream();
-        })
-      : await step.do(
+    const owned = await step.do(
+      "store article metadata in D1",
+      { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
+      async () => await storeArticleMetadata(this.env.DB, article, event.timestamp.toISOString()),
+    );
+    if (!owned) return { articleId: article.id, status: "duplicate" };
+
+    const detailStream = await step.do(
       "download article from DM",
       { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
       async () => {
-        const detail = await fetchResearchReportDetail(this.env.ARTICLE_API_BASE_URL, article, dataFetcher(this.env));
+        const fetched = await fetchResearchReportDetail(this.env.ARTICLE_API_BASE_URL, article, dataFetcher(this.env));
+        const detail = article.source === "wechat" ? { ...fetched, link: article.sourceUrl } : fetched;
         if (detail.link) await updateArticleLink(this.env.DB, article.id, detail.link);
         return new Blob([JSON.stringify(detail)]).stream();
       },
@@ -322,7 +321,7 @@ export default {
       scheduledAt, startedAt: new Date().toISOString(), delayMs: Date.now() - controller.scheduledTime }));
     if (!await scheduledTradingDay(env, controller.scheduledTime)) return;
     const results = await Promise.allSettled([
-      collectResearchReports(env, scheduledAt),
+      collectResearchReports(env),
       collectCentralBankNotifications(env, scheduledAt),
       collectPolicies(env, scheduledAt),
       startOpenMarketWorkflow(env, controller.scheduledTime),
