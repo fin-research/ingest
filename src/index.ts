@@ -326,6 +326,9 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 export async function runScheduledCollection(env: Env, scheduledTime: number): Promise<void> {
+    if (!Number.isSafeInteger(scheduledTime) || scheduledTime < 60_000
+      || !Number.isFinite(new Date(scheduledTime).getTime())) throw new Error('Invalid scheduled time');
+    scheduledTime = Math.floor(scheduledTime / 60_000) * 60_000;
     const scheduledAt = new Date(scheduledTime).toISOString();
     console.log(JSON.stringify({ event: "ingest_cron_started",
       scheduledAt, startedAt: new Date().toISOString(), delayMs: Date.now() - scheduledTime }));

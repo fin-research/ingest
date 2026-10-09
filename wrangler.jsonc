@@ -28,7 +28,7 @@
     "head_sampling_rate": 1
   },
   "triggers": {
-    "crons": []
+    "crons": ["*/5 0-9 * * MON-FRI"]
   },
   "d1_databases": [
     {
