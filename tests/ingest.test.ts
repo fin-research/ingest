@@ -50,14 +50,14 @@ const apiPayload = [
       sentimentId: "S1",
       newsId: "N1",
       title: "研报一",
-      time: "2026-08-11T09:00:00+08:00",
+      time: "2026-10-02T09:00:00+08:00",
       tags: ["市场解读"],
     },
     {
       sentimentId: "S2",
       newsId: "N2",
       title: "研报二",
-      time: "2026-08-11T09:05:00+08:00",
+      time: "2026-10-02T09:05:00+08:00",
       tags: ["市场解读"],
     },
 ];
@@ -76,8 +76,8 @@ describe("scheduled ingest", () => {
       fetcher,
     };
 
-    const first = await runCollection(dependencies, "2026-08-11T01:05:00Z");
-    const second = await runCollection(dependencies, "2026-08-11T01:10:00Z");
+    const first = await runCollection(dependencies, "2026-10-02T01:05:00Z");
+    const second = await runCollection(dependencies, "2026-10-02T01:10:00Z");
 
     expect(first).toEqual({ fetched: 2, existing: 0, inserted: 2, workflows: 2 });
     expect(second).toEqual({ fetched: 2, existing: 2, inserted: 0, workflows: 0 });
@@ -101,7 +101,7 @@ describe("scheduled ingest", () => {
           workflow,
           fetcher,
         },
-        "2026-08-11T01:05:00Z",
+        "2026-10-02T01:05:00Z",
       ),
     ).rejects.toThrow("workflow unavailable");
 
@@ -120,17 +120,17 @@ describe("scheduled ingest", () => {
         if (url.pathname.endsWith("/wechat-articles")) {
           expect(url.searchParams.get("onlySubscription")).toBe("true");
           return Response.json([
-            subscribed("W1", "研报一", "2026-08-11T01:30:00Z"),
-            subscribed("W2", "假期研报", "2026-08-10T23:00:00Z"),
+            subscribed("W1", "研报一", "2026-10-02T01:30:00Z"),
+            subscribed("W2", "假期研报", "2026-10-01T23:00:00Z"),
           ]);
         }
         fetchedDetails.push(url.pathname);
         return Response.json({ content: "完整DM文字正文", link: "https://mp.weixin.qq.com/s/unrelated" });
       } };
-    expect(await runCollection(dependencies, "2026-08-11T01:05:00Z")).toMatchObject({ fetched: 3, inserted: 2, workflows: 2 });
+    expect(await runCollection(dependencies, "2026-10-02T01:05:00Z")).toMatchObject({ fetched: 3, inserted: 2, workflows: 2 });
     expect(workflow.batches[0]).toEqual([expect.objectContaining({ id: "S1" }), expect.objectContaining({ id: "W2", source: "wechat", sourceUrl: longUrl, subscriptionContent: "完整DM文字正文" })]);
     expect(fetchedDetails).toEqual(["/data/news/W2"]);
-    expect(await runCollection(dependencies, "2026-08-11T01:10:00Z")).toMatchObject({ inserted: 0, workflows: 0 });
+    expect(await runCollection(dependencies, "2026-10-02T01:10:00Z")).toMatchObject({ inserted: 0, workflows: 0 });
     expect(fetchedDetails).toHaveLength(1);
   });
 
@@ -143,10 +143,10 @@ describe("scheduled ingest", () => {
         if (url.pathname.endsWith("/wechat-articles")) return Response.json([subscribed("W1", "恢复文章"), subscribed("W2", "超限文章")]);
         return Response.json({ content: url.pathname.endsWith("W1") ? "" : "中".repeat(350_000) });
       } };
-    expect(await runCollection(dependencies, "2026-08-11T01:00:00Z")).toMatchObject({ inserted: 0, skipped: 2 });
+    expect(await runCollection(dependencies, "2026-10-02T01:00:00Z")).toMatchObject({ inserted: 0, skipped: 2 });
     expect(repository.rows.size).toBe(0);
     available = true;
-    expect(await runCollection(dependencies, "2026-08-11T01:05:00Z")).toMatchObject({ inserted: 1 });
+    expect(await runCollection(dependencies, "2026-10-02T01:05:00Z")).toMatchObject({ inserted: 1 });
     expect(repository.rows.has("S1")).toBe(true);
   });
 
@@ -160,7 +160,7 @@ describe("scheduled ingest", () => {
           if (path.endsWith("/news")) return Response.json(apiPayload);
           if (path.endsWith("/wechat-articles")) return Response.json([subscribed("W1", "公众号文章")]);
           return Response.json({ content: "DM正文" });
-        } }, "2026-08-11T01:00:00Z");
+        } }, "2026-10-02T01:00:00Z");
       expect(workflow.batches.flat()).toHaveLength(failedSource === "news" ? 1 : 2);
     }
   });
@@ -171,7 +171,7 @@ describe("scheduled ingest", () => {
       workflow: { async start(articles) { if (++calls === 2) throw new Error("dispatch failed"); return articles.map((article) => article.id); } },
       fetcher: async (input) => Response.json(new URL(String(input)).pathname.endsWith("/wechat-articles") ? [] :
         Array.from({ length: 101 }, (_, index) => ({ ...apiPayload[0], sentimentId: `N${index}`, title: `文章${index}` }))),
-    }, "2026-08-11T01:00:00Z")).rejects.toThrow("dispatch failed");
+    }, "2026-10-02T01:00:00Z")).rejects.toThrow("dispatch failed");
     expect(repository.rows.size).toBe(101);
     expect(repository.removed).toEqual([]);
   });
@@ -180,6 +180,7 @@ describe("scheduled ingest", () => {
     const repository = new MemoryRepository();
     const instances = new Set<string>();
     const binding = {
+      async create(option: { id: string }) { instances.add(option.id); return { id: option.id }; },
       async get(id: string) { return { async status() {
         if (!instances.has(id)) throw new Error("instance.not_found");
         return { status: "queued" };
@@ -196,7 +197,7 @@ describe("scheduled ingest", () => {
         await recovery.reconcile([...repository.rows.values()], "https://eastmoney.hasbai.xyz/data");
         throw new WorkflowDispatchError("earlier instance.not_found", new Set());
       } },
-    }, "2026-08-11T01:00:00Z")).rejects.toThrow("earlier instance.not_found");
+    }, "2026-10-02T01:00:00Z")).rejects.toThrow("earlier instance.not_found");
     expect(instances).toEqual(new Set(["article-S1", "article-S2"]));
     expect(repository.rows.size).toBe(2);
     expect(repository.removed).toEqual([]);
@@ -204,7 +205,7 @@ describe("scheduled ingest", () => {
 });
 
 const longUrl = "https://mp.weixin.qq.com/s?__biz=test&mid=1&idx=1&sn=test";
-function subscribed(id: string, title: string, time = "2026-08-11T09:00:00+08:00") {
+function subscribed(id: string, title: string, time = "2026-10-02T09:00:00+08:00") {
   return { sentimentId: id, title, time, accountName: "关注公众号", url: longUrl };
 }
 

@@ -6,6 +6,7 @@ import {
   articleDedupeKey,
   shanghaiDate,
   isWechatLongArticleUrl,
+  WECHAT_SUBSCRIPTION_START_DATE,
   type ArticleMetadata,
   type ArticleWorkflowParams,
   type Fetcher,
@@ -19,6 +20,7 @@ export interface CollectionSummary {
   inserted: number;
   workflows: number;
   skipped?: number;
+  deferred?: number;
 }
 
 export interface ArticleRepository {
@@ -42,7 +44,7 @@ export async function collectResearchReports(env: Env, createdAt: string): Promi
   const repository = new D1ArticleRepository(env.DB);
   const workflow = new CloudflareArticleWorkflowLauncher(env.ARTICLE_WORKFLOW);
   const fetcher = dataFetcher(env);
-  await workflow.reconcile(await repository.findPending(), env.ARTICLE_API_BASE_URL, fetcher);
+  await workflow.reconcile(await repository.findPending(), env.ARTICLE_API_BASE_URL, fetcher, createdAt);
   return await runCollection(
     {
       apiBaseUrl: env.ARTICLE_API_BASE_URL,
@@ -85,11 +87,16 @@ export async function runCollection(
   }
 
   const prepared = new Map<string, ArticleWorkflowParams>();
+  const subscriptions = candidates.filter((article) => article.source === "wechat");
+  const selected = rotatingSlice(subscriptions, 8, createdAt);
+  const selectedIds = new Set(selected.map((article) => article.id));
+  const preparationCandidates = candidates.filter((article) => article.source !== "wechat" || selectedIds.has(article.id));
+  const deferred = candidates.length - preparationCandidates.length;
   let cursor = 0;
   // Bound HTTP concurrency; empty/failed details never claim a D1 identity.
-  await Promise.all(Array.from({ length: Math.min(4, candidates.length) }, async () => {
-    while (cursor < candidates.length) {
-      const article = candidates[cursor++]!;
+  await Promise.all(Array.from({ length: Math.min(4, preparationCandidates.length) }, async () => {
+    while (cursor < preparationCandidates.length) {
+      const article = preparationCandidates[cursor++]!;
       try {
         const params = await prepareWorkflowArticle(dependencies.apiBaseUrl, article, dependencies.fetcher);
         prepared.set(article.id, params);
@@ -99,13 +106,13 @@ export async function runCollection(
     }
   }));
   const ready = candidates.flatMap((article) => prepared.has(article.id) ? [prepared.get(article.id)!] : []);
-  const skipped = candidates.length - ready.length;
+  const skipped = preparationCandidates.length - ready.length;
   let insertedCount = 0;
   let workflowCount = 0;
   // Complete each dispatch before inserting the next batch; later failures cannot
   // roll back articles belonging to an earlier successful batch.
-  for (let offset = 0; offset < ready.length; offset += 100) {
-    const inserted = await dependencies.repository.insertIfAbsent(ready.slice(offset, offset + 100), createdAt);
+  for (const batch of articleDispatchBatches(ready)) {
+    const inserted = await dependencies.repository.insertIfAbsent(batch, createdAt);
     if (!inserted.length) continue;
     try {
       const instances = await dependencies.workflow.start(inserted.map((article) => prepared.get(article.id)!));
@@ -117,8 +124,8 @@ export async function runCollection(
       throw error;
     }
   }
-  return { fetched: articles.length, existing: articles.length - insertedCount - skipped,
-    inserted: insertedCount, workflows: workflowCount, ...(skipped ? { skipped } : {}) };
+  return { fetched: articles.length, existing: articles.length - insertedCount - skipped - deferred,
+    inserted: insertedCount, workflows: workflowCount, ...(skipped ? { skipped } : {}), ...(deferred ? { deferred } : {}) };
 }
 
 export class D1ArticleRepository implements ArticleRepository {
@@ -126,7 +133,8 @@ export class D1ArticleRepository implements ArticleRepository {
 
   async findPending(): Promise<ArticleMetadata[]> {
     const rows = await this.database.prepare(`SELECT id, news_id, title, published_at, link
-      FROM article WHERE prompt_version IS NULL`).all<{
+      FROM article WHERE prompt_version IS NULL
+      AND date(published_at, '+8 hours') >= ? ORDER BY created_at, id`).bind(WECHAT_SUBSCRIPTION_START_DATE).all<{
         id: string; news_id: string | null; title: string; published_at: string; link: string | null;
       }>();
     // Newly inserted news has no link until its workflow downloads DM detail;
@@ -214,11 +222,12 @@ export class WorkflowDispatchError extends Error {
 export class CloudflareArticleWorkflowLauncher implements ArticleWorkflowLauncher {
   constructor(private readonly workflow: Env["ARTICLE_WORKFLOW"]) {}
 
-  async reconcile(pending: ArticleMetadata[], apiBaseUrl: string, fetcher?: Fetcher): Promise<void> {
+  async reconcile(pending: ArticleMetadata[], apiBaseUrl: string, fetcher?: Fetcher, scheduledAt = new Date().toISOString()): Promise<void> {
+    const selected = rotatingSlice(pending, 5, scheduledAt);
     let cursor = 0;
-    await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
-      while (cursor < pending.length) {
-        const article = pending[cursor++]!;
+    await Promise.all(Array.from({ length: Math.min(4, selected.length) }, async () => {
+      while (cursor < selected.length) {
+        const article = selected[cursor++]!;
         try {
           try {
             const instance = await this.workflow.get(workflowInstanceId(article));
@@ -242,30 +251,24 @@ export class CloudflareArticleWorkflowLauncher implements ArticleWorkflowLaunche
 
   async start(articles: ArticleWorkflowParams[]): Promise<string[]> {
     if (articles.length === 0) return [];
-    const retained = new Set<string>();
-    let failure: unknown;
     let returned = new Set<string>();
     try {
-      const instances = await this.workflow.createBatch(articles.map((article) => ({ id: workflowInstanceId(article), params: article })));
+      const options = articles.map((article) => ({ id: workflowInstanceId(article), params: article }));
+      const instances = articles.length === 1
+        ? [await this.workflow.create(options[0]!)]
+        : await this.workflow.createBatch(options);
       returned = new Set(instances.map((instance) => instance.id));
-    } catch { /* Reconcile every requested ID before reporting dispatch failure. */ }
-    for (const article of articles) {
-      const id = workflowInstanceId(article);
-      if (returned.has(id)) { retained.add(article.id); continue; }
-      try {
-        const instance = await this.workflow.get(id);
-        const status = await instance.status();
-        retained.add(article.id);
-        if (status.status === "errored") await instance.restart();
-        if (status.status === "terminated" || status.status === "unknown") throw new Error(`article workflow is ${status.status}`);
-      } catch (error) {
-        // An ambiguous transport failure is not proof that the instance was not
-        // created. Record the uncertainty for the next independent reconciliation.
-        if (!isInstanceMissing(error)) retained.add(article.id);
-        failure ??= error;
-      }
+    } catch (error) {
+      console.error(JSON.stringify({ event: "article_create_batch_failed", count: articles.length,
+        payloadBytes: new TextEncoder().encode(JSON.stringify(articles.map((params) => ({ id: workflowInstanceId(params), params })))).byteLength,
+        error: errorMessage(error) }));
+      // All claims remain recoverable. Avoid another unbounded status scan in
+      // the failed Cron; the next bounded reconciliation resolves uncertainty.
+      throw new WorkflowDispatchError(errorMessage(error), new Set(articles.map((article) => article.id)));
     }
-    if (failure) throw new WorkflowDispatchError(errorMessage(failure), retained);
+    if (articles.some((article) => !returned.has(workflowInstanceId(article)))) {
+      throw new WorkflowDispatchError("article dispatch deferred to reconciliation", new Set(articles.map((article) => article.id)));
+    }
     return articles.map(workflowInstanceId);
   }
 }
@@ -287,3 +290,26 @@ async function prepareWorkflowArticle(apiBaseUrl: string, article: ArticleMetada
 
 // ECMAScript trim's whitespace set, shared by SQL lookups and atomic inserts.
 const TRIM_TITLE_SQL = "trim(title, char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279))";
+
+export function articleDispatchBatches(articles: ArticleWorkflowParams[]): ArticleWorkflowParams[][] {
+  const batches: ArticleWorkflowParams[][] = [];
+  let batch: ArticleWorkflowParams[] = [];
+  let bytes = 2;
+  // createBatch also has a 1MiB RPC cap across the entire batch. Leave room for
+  // its transport envelope; large single payloads use create instead.
+  for (const article of articles) {
+    const size = new TextEncoder().encode(JSON.stringify({ id: workflowInstanceId(article), params: article })).byteLength + 1;
+    if (batch.length && (batch.length >= 100 || bytes + size > 900 * 1024)) {
+      batches.push(batch); batch = []; bytes = 2;
+    }
+    batch.push(article); bytes += size;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
+export function rotatingSlice<T>(items: T[], limit: number, scheduledAt: string): T[] {
+  if (items.length <= limit) return items;
+  const offset = (Math.floor(new Date(scheduledAt).valueOf() / 300_000) * limit) % items.length;
+  return Array.from({ length: limit }, (_, index) => items[(offset + index) % items.length]!);
+}

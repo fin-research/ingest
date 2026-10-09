@@ -191,4 +191,13 @@ describe("research report helpers", () => {
     expect(() => assertWorkflowPayloadFits({ ...metadata, subscriptionContent: "中".repeat(350_000) })).toThrow("1 MiB");
     expect(() => assertWorkflowPayloadFits({ ...metadata, subscriptionContent: "\n".repeat(530_000) })).toThrow("1 MiB");
   });
+
+  it("only backfills October onward by Shanghai date, including UTC dates crossing midnight", async () => {
+    const row = { sentimentId: "W", title: "公众号文章", accountName: "关注公众号", url: "https://mp.weixin.qq.com/s?__biz=test&mid=1&idx=1&sn=test" };
+    const rows = await fetchSubscribedWechatList("https://eastmoney.hasbai.xyz/data", async () => Response.json([
+      { ...row, sentimentId: "sept", time: "2026-09-30T23:59:59+08:00" },
+      { ...row, sentimentId: "oct", time: "2026-09-30T16:00:00Z" },
+    ]));
+    expect(rows.map((article) => article.id)).toEqual(["oct"]);
+  });
 });

@@ -10,6 +10,7 @@ export const ECONOMIC_DATA_POLICY_TAG = "经济数据&政策";
 export const CENTRAL_POLICY_TAG = "中央政策";
 export const CHINA_CENTRAL_BANK_TITLE_PREFIX = "中国央行：";
 export const NEWS_PAGE_SIZE = 100;
+export const WECHAT_SUBSCRIPTION_START_DATE = "2026-10-01";
 
 export interface ArticleMetadata {
   /** DM sentimentId; used as the canonical article identity. */
@@ -130,7 +131,7 @@ export async function fetchSubscribedWechatList(apiBaseUrl: string, fetcher: Fet
   })).parse(payload);
   return deduplicateArticles(rows.map((row) => validateArticleMetadata({
     ...row, source: "wechat", sourceUrl: row.url,
-  })));
+  })).filter((article) => shanghaiDate(article.publishedAt) >= WECHAT_SUBSCRIPTION_START_DATE));
 }
 
 export async function fetchCentralBankPolicyNews(

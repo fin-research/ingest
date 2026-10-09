@@ -18,7 +18,7 @@
 - 所有 Data 列表和详情通过 `src/data-fetcher.ts` 使用 `DATA` / `InternalData` Service Binding；发布前确认 Data Worker 已提供该入口，不以公网请求绕过登录保护。
 - `/data/news` 是顶层 JSON array；请求必须用 `fields` 只取 `sentimentId,newsId,title,time,tags`，公开市场播报不按 `important` 筛选；不得恢复 `list` 或 `data` envelope 假设。详情仍为顶层 object。
 - 每轮 D1 批量查重；重复轮询不得更新已有记录。新增项每批一次 `batch()` 写入，Workflow 启动失败保留本批新增去重行，由后续独立对账重试。
-- 标题日期去重必须在同条 D1 insert 内原子检查；Workflow 每批最多100条，启动失败保留全部已插入记录，由后续对账恢复。每轮独立对账未特征化记录，网络结果未知时保留并下轮重查。
+- 标题日期去重必须在同条 D1 insert 内原子检查；Workflow 每批最多100条，启动失败保留全部已插入记录，由后续对账恢复。每轮轮转对账最多5条未特征化记录，正文预抓最多8篇订阅，网络结果未知时保留并下轮重查。
 - Workflow 步骤必须幂等，所有 Promise 必须 await。公众号直连失败时回退 DM 正文。
 - 政策与研报关联使用双向增量触发：政策落库时匹配已有研报，研报特征落库时匹配近期政策；人工关联或排除优先于 AI，后续自动任务不得覆盖。
 - 研报正文不写 D1；政策正文继续保留在 `policy_news` 供详情与点评读取。R2 保存两类用于索引的 Markdown，写入前统一应用既有中文标点补空格兼容处理。
