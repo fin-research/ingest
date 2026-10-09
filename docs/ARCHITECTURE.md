@@ -4,8 +4,8 @@
 
 ## 运行入口与采集契约
 
-- [index.ts](../src/index.ts) 的 fetch 只提供 `GET /health`，其他路径返回 404；scheduled 编排研报、央行资讯与政策三条增量链路，并在工作日北京时间 09:20 启动当日公开市场播报 Workflow。
-- Cron 表达式与 Workflow binding 以 [wrangler.jsonc](../wrangler.jsonc) 为准；UTC `*/5 0-9 * * MON-FRI` 对应上海工作日 `[08:00, 18:00)`。
+- [index.ts](../src/index.ts) 的 fetch 只提供 `GET /health`，其他路径返回 404；`runScheduledCollection` 编排研报、央行资讯与政策三条增量链路，并在工作日北京时间 09:20 启动当日公开市场播报 Workflow。
+- Workflow binding 以 [wrangler.jsonc](../wrangler.jsonc) 为准，触发时间表由 Messenger `src/scheduler.ts` 维护；UTC `*/5 0-9 * * MON-FRI` 对应上海工作日 `[08:00, 18:00)`。
 - 四路采集/Workflow 创建前，按 `scheduledTime` 的上海日期检查周末及 DATA `/data/trading-days` 的 Choice 上交所日历。有效休市响应正常跳过；日历异常记录 `ingest_calendar_unavailable` 并停止本轮，下次五分钟 Cron 重试，不默认放行。成功日历由 Data 在当前边缘节点缓存，错误不缓存。
 - 列表固定 `pageSize=100` 并精确复核标签；只请求 `fields=sentimentId,newsId,title,time,tags`。公开市场播报使用 `date` 过滤，不要求 `important=true`。列表为顶层 array，详情为 object，不恢复 `list/data` envelope。
 - 列表与详情统一经 [data-fetcher.ts](../src/data-fetcher.ts) 的 DATA / InternalData；`ARTICLE_API_BASE_URL` 保留生产 `/data` 前缀，不以公网匿名请求替代 binding。研报同时读取仅关注公众号列表，与news按标题和上海日期去重后直接启动Workflow；元数据存储与DM正文读取均在Workflow内，见[研报模块](modules/articles.md)。

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-纯 TypeScript Cloudflare Worker。Cron 在工作日北京时间 08:00–18:00 每 5 分钟读取 `市场解读` 文章和 `中央政策` 资讯；新增研报进入 `ArticleWorkflow` 完成正文获取、AI 特征抽取、D1 元数据、R2 归档和政策关联；AI Search 独立同步 R2 数据源，新增政策资讯进入 `PolicyWorkflow` 自动归并为政策卡片。
+纯 TypeScript Cloudflare Worker。Messenger 私有定时触发在工作日北京时间 08:00–18:00 每 5 分钟读取 `市场解读` 文章和 `中央政策` 资讯；新增研报进入 `ArticleWorkflow` 完成正文获取、AI 特征抽取、D1 元数据、R2 归档和政策关联；AI Search 独立同步 R2 数据源，新增政策资讯进入 `PolicyWorkflow` 自动归并为政策卡片。
 
 运行资源以 `wrangler.jsonc` 为准：Worker `ingest`、D1 `eastmoney`、四个业务 Workflow 和 R2 `article`。AI Search `research` 独立同步 R2，Worker 不绑定 AI Search。
 
@@ -10,7 +10,7 @@
 
 - 项目必须保持纯 TypeScript；不得新增 Python、本地采集器、SQLite 或 launchd 任务。
 - 修改前搜索现有 adapter、校验器和测试；不要绕过 `article.ts`、`ai-gateway.ts` 或既有 Workflow 步骤直接实现重复逻辑。
-- 工作日采集 Cron 和 09:20 的公开市场播报使用 `wrangler.jsonc` 中的既有调度；步骤与重试规则见[公开市场播报](docs/modules/open-market.md)。
+- 工作日采集和 09:20 的公开市场播报由 Messenger 唯一分钟 Cron 经私有 `ScheduledTasks` 触发；Ingest 的 `wrangler.jsonc` 不配置 Cron；步骤与重试规则见[公开市场播报](docs/modules/open-market.md)。
 - 列表固定请求 `tag=市场解读&pageSize=100`，并再次执行精确标签过滤。
 - 公众号订阅只读取 DATA `/wechat-articles?onlySubscription=true&pageSize=100`，范围自2026-10-01起；候选按标题与上海自然日查重后直接传元数据给 ArticleWorkflow，DM正文在Workflow内获取。订阅原文链接使用列表长 URL，不使用详情 link；原 news 短链抓取与 DM 回退保持原样。
 - 政策列表固定请求 `tag=中央政策&pageSize=100`，并再次执行精确标签过滤；政策归并必须由 `PolicyWorkflow` 完成。
