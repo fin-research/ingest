@@ -8,7 +8,7 @@
 
 订阅候选按最多4路并发读取DM详情正文，非空正文快照随Workflow参数传入；完整JSON按UTF-8计量须小于1MiB，空正文、请求失败、超限不写入D1、不截断，后续轮询可以重试。DM只保留可提取文字，不包含图片/图表；图片型PPT可能仅有提示文字，本链路不执行OCR。
 
-每批最多100条，先写入再启动；后批失败不回滚前批。启动异常按实例ID对账，仅删除确定不存在实例的本批新增行；未知网络状态保留。每轮先独立扫描 `prompt_version IS NULL` 记录，对运行中或已完成实例保留，失败实例使用原参数重启，明确不存在时重建。首次订阅插入已保存列表长URL、news插入的link为空，可据此恢复未启动记录；已有实例不改来源。人工终止实例不自动重启，记录异常。恢复不依赖当前100条列表窗口，也不受列表接口失败阻断。
+每批最多100条，先写入再启动；后批失败不回滚前批。启动异常按实例ID对账，保留全部本批新增行，后续轮询恢复；避免另一个Cron已恢复实例时误删文章。每轮先独立扫描 `prompt_version IS NULL` 记录，对运行中或已完成实例保留，失败实例使用原参数重启，明确不存在时重建。首次订阅插入已保存列表长URL、news插入的link为空，可据此恢复未启动记录；已有实例不改来源。人工终止实例不自动重启，记录异常。恢复不依赖当前100条列表窗口，也不受列表接口失败阻断。
 
 ## ArticleWorkflow
 
@@ -42,7 +42,7 @@ AI Search research independently indexes archived R2 documents
 ## 实现与验证
 
 - [article.ts](../../src/article.ts)：列表/详情契约、日期和稳定 key。
-- [ingest.ts](../../src/ingest.ts)：查重、只写新增、Workflow 启动回滚。
+- [ingest.ts](../../src/ingest.ts)：查重、只写新增、Workflow 分发与恢复。
 - [index.ts](../../src/index.ts)：ArticleWorkflow 步骤；[wechat.ts](../../src/wechat.ts)：公众号下载和清洗。
 - [feature-extraction.ts](../../src/feature-extraction.ts)：Prompt / Zod 特征及关键词覆盖。
 - [tests](../../tests)：按 article、ingest、feature-extraction、wechat 与 Workflow 相关测试选择；默认完整检查见 [DEVELOPMENT](../DEVELOPMENT.md)。

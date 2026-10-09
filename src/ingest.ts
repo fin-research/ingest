@@ -112,8 +112,8 @@ export async function runCollection(
       insertedCount += inserted.length;
       workflowCount += instances.length;
     } catch (error) {
-      const retained = error instanceof WorkflowDispatchError ? error.retainedArticleIds : new Set<string>();
-      await dependencies.repository.remove(inserted.filter((article) => !retained.has(article.id)).map((article) => article.id));
+      // Another Cron may already be recovering an apparently missing instance.
+      // Keep every claim; independent reconciliation retries stable IDs next scan.
       throw error;
     }
   }
@@ -248,7 +248,7 @@ export class CloudflareArticleWorkflowLauncher implements ArticleWorkflowLaunche
     try {
       const instances = await this.workflow.createBatch(articles.map((article) => ({ id: workflowInstanceId(article), params: article })));
       returned = new Set(instances.map((instance) => instance.id));
-    } catch { /* Reconcile every requested ID before deciding to roll back. */ }
+    } catch { /* Reconcile every requested ID before reporting dispatch failure. */ }
     for (const article of articles) {
       const id = workflowInstanceId(article);
       if (returned.has(id)) { retained.add(article.id); continue; }
@@ -260,7 +260,7 @@ export class CloudflareArticleWorkflowLauncher implements ArticleWorkflowLaunche
         if (status.status === "terminated" || status.status === "unknown") throw new Error(`article workflow is ${status.status}`);
       } catch (error) {
         // An ambiguous transport failure is not proof that the instance was not
-        // created. Preserve its row rather than permit a competing source.
+        // created. Record the uncertainty for the next independent reconciliation.
         if (!isInstanceMissing(error)) retained.add(article.id);
         failure ??= error;
       }

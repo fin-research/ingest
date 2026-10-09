@@ -7,6 +7,8 @@ import {
   type ArticleWorkflowLauncher,
   runCollection,
   D1ArticleRepository,
+  CloudflareArticleWorkflowLauncher,
+  WorkflowDispatchError,
 } from "../src/ingest";
 
 class MemoryRepository implements ArticleRepository {
@@ -83,7 +85,7 @@ describe("scheduled ingest", () => {
     expect([...repository.rows]).toHaveLength(2);
   });
 
-  it("removes newly inserted dedupe rows when workflow dispatch fails", async () => {
+  it("retains newly inserted rows for independent reconciliation when dispatch fails", async () => {
     const repository = new MemoryRepository();
     const workflow: ArticleWorkflowLauncher = {
       async start(): Promise<string[]> {
@@ -103,8 +105,8 @@ describe("scheduled ingest", () => {
       ),
     ).rejects.toThrow("workflow unavailable");
 
-    expect(repository.rows.size).toBe(0);
-    expect(repository.removed).toEqual([["S1", "S2"]]);
+    expect(repository.rows.size).toBe(2);
+    expect(repository.removed).toEqual([]);
   });
 
   it("prefers news for same-title same-Shanghai-date duplicates and snapshots only new subscriptions", async () => {
@@ -170,8 +172,34 @@ describe("scheduled ingest", () => {
       fetcher: async (input) => Response.json(new URL(String(input)).pathname.endsWith("/wechat-articles") ? [] :
         Array.from({ length: 101 }, (_, index) => ({ ...apiPayload[0], sentimentId: `N${index}`, title: `文章${index}` }))),
     }, "2026-08-11T01:00:00Z")).rejects.toThrow("dispatch failed");
-    expect(repository.rows.size).toBe(100);
-    expect(repository.removed).toEqual([["N100"]]);
+    expect(repository.rows.size).toBe(101);
+    expect(repository.removed).toEqual([]);
+  });
+
+  it("does not delete a row recovered by another Cron after an earlier missing-instance observation", async () => {
+    const repository = new MemoryRepository();
+    const instances = new Set<string>();
+    const binding = {
+      async get(id: string) { return { async status() {
+        if (!instances.has(id)) throw new Error("instance.not_found");
+        return { status: "queued" };
+      } }; },
+      async createBatch(options: { id: string }[]) {
+        options.forEach((option) => instances.add(option.id));
+        return options.map((option) => ({ id: option.id }));
+      },
+    } as unknown as Env["ARTICLE_WORKFLOW"];
+    const recovery = new CloudflareArticleWorkflowLauncher(binding);
+    await expect(runCollection({ apiBaseUrl: "https://eastmoney.hasbai.xyz/data", repository, fetcher,
+      workflow: { async start() {
+        // Cron B creates the instance while Cron A still holds a stale negative.
+        await recovery.reconcile([...repository.rows.values()], "https://eastmoney.hasbai.xyz/data");
+        throw new WorkflowDispatchError("earlier instance.not_found", new Set());
+      } },
+    }, "2026-08-11T01:00:00Z")).rejects.toThrow("earlier instance.not_found");
+    expect(instances).toEqual(new Set(["article-S1", "article-S2"]));
+    expect(repository.rows.size).toBe(2);
+    expect(repository.removed).toEqual([]);
   });
 });
 
