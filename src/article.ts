@@ -17,6 +17,34 @@ export interface ArticleMetadata {
   newsId?: string;
   title: string;
   publishedAt: string;
+  source?: "wechat";
+  sourceUrl?: string;
+}
+
+export interface ArticleWorkflowParams extends ArticleMetadata {
+  /** Verified DM text snapshot; never stored in D1. */
+  subscriptionContent?: string;
+}
+
+const MAX_WORKFLOW_PAYLOAD_BYTES = 1024 * 1024;
+
+export function assertWorkflowPayloadFits(params: ArticleWorkflowParams): void {
+  if (new TextEncoder().encode(JSON.stringify(params)).byteLength >= MAX_WORKFLOW_PAYLOAD_BYTES) {
+    throw new Error("article Workflow payload exceeds 1 MiB");
+  }
+}
+
+export function articleDedupeKey(article: ArticleMetadata): string {
+  return JSON.stringify([article.title.trim(), shanghaiDate(article.publishedAt)]);
+}
+
+export function isWechatLongArticleUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "mp.weixin.qq.com" && url.pathname === "/s"
+      && !url.username && !url.password
+      && ["__biz", "mid", "idx", "sn"].every((key) => !!url.searchParams.get(key));
+  } catch { return false; }
 }
 
 export interface ArticleDetail {
@@ -55,11 +83,20 @@ export function validateArticleMetadata(value: unknown): ArticleMetadata {
     throw new Error("time must be an ISO date-time");
   }
 
+  if (row.source !== undefined && row.source !== "wechat") throw new Error("unsupported article source");
+  const sourceUrl = row.source === "wechat" ? requireString(row.sourceUrl, "sourceUrl", 4096) : undefined;
+  if (sourceUrl) {
+    if (!isWechatLongArticleUrl(sourceUrl)) {
+      throw new Error("subscription sourceUrl must be a WeChat long URL");
+    }
+  }
+
   return {
     id,
     ...(newsId ? { newsId } : {}),
     title,
     publishedAt,
+    ...(sourceUrl ? { source: "wechat" as const, sourceUrl } : {}),
   };
 }
 
@@ -77,6 +114,23 @@ export async function fetchResearchReportList(
   fetcher: Fetcher = fetch,
 ): Promise<ArticleMetadata[]> {
   return await fetchTaggedNewsList(apiBaseUrl, MARKET_COMMENTARY_TAG, fetcher);
+}
+
+export async function fetchSubscribedWechatList(apiBaseUrl: string, fetcher: Fetcher = fetch): Promise<ArticleMetadata[]> {
+  const url = apiUrl(apiBaseUrl, "wechat-articles");
+  url.searchParams.set("pageSize", String(NEWS_PAGE_SIZE));
+  url.searchParams.set("onlySubscription", "true");
+  url.searchParams.set("fields", "sentimentId,title,accountName,time,url");
+  const payload = await readJsonResponse(await fetcher(url, {
+    headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000),
+  }), "subscribed WeChat list");
+  const rows = z.array(z.object({
+    sentimentId: z.string().min(1), title: z.string().min(1), accountName: z.string().min(1),
+    time: z.string(), url: z.string(),
+  })).parse(payload);
+  return deduplicateArticles(rows.map((row) => validateArticleMetadata({
+    ...row, source: "wechat", sourceUrl: row.url,
+  })));
 }
 
 export async function fetchCentralBankPolicyNews(
@@ -260,7 +314,7 @@ function sanitizeFilename(value: string): string {
   return Array.from(filename).slice(0, 180).join("");
 }
 
-function shanghaiDate(value: string): string {
+export function shanghaiDate(value: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: SHANGHAI_TIME_ZONE,
     year: "numeric",

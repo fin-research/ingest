@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   addChinesePunctuationSpaces,
+  assertWorkflowPayloadFits,
   articleObjectKey,
   buildArticleMarkdown,
   fetchCentralPolicyNews,
   fetchCentralBankPolicyNews,
   fetchResearchReportDetail,
   fetchResearchReportList,
+  fetchSubscribedWechatList,
   prepareAiSearchMarkdown,
   validateArticleMetadata,
   workflowInstanceId,
@@ -170,5 +172,23 @@ describe("research report helpers", () => {
         async () => Response.json({ content: "" }),
       ),
     ).rejects.toThrow("content is required");
+  });
+
+  it("validates subscribed long URLs while accepting legacy news payloads", async () => {
+    const url = "https://mp.weixin.qq.com/s?__biz=test&mid=1&idx=1&sn=test";
+    const result = await fetchSubscribedWechatList("https://eastmoney.hasbai.xyz/data", async () => Response.json([
+      { sentimentId: "W1", title: "公众号研报", accountName: "关注公众号", time: "2026-10-01T10:00:00+08:00", url },
+    ]));
+    expect(result).toEqual([{ id: "W1", title: "公众号研报", publishedAt: "2026-10-01T10:00:00+08:00", source: "wechat", sourceUrl: url }]);
+    expect(validateArticleMetadata(article)).not.toHaveProperty("source");
+    expect(() => validateArticleMetadata({ ...article, source: "wechat", sourceUrl: "https://mp.weixin.qq.com/s/short" })).toThrow("long URL");
+    await expect(fetchSubscribedWechatList("https://eastmoney.hasbai.xyz/data", async () => Response.json({ list: [] }))).rejects.toThrow();
+  });
+
+  it("checks the complete UTF-8 JSON payload rather than character count or body alone", () => {
+    const metadata = { id: "A", title: "标题", publishedAt: "2026-10-01T10:00:00+08:00" };
+    expect(() => assertWorkflowPayloadFits({ ...metadata, subscriptionContent: "中".repeat(340_000) })).not.toThrow();
+    expect(() => assertWorkflowPayloadFits({ ...metadata, subscriptionContent: "中".repeat(350_000) })).toThrow("1 MiB");
+    expect(() => assertWorkflowPayloadFits({ ...metadata, subscriptionContent: "\n".repeat(530_000) })).toThrow("1 MiB");
   });
 });

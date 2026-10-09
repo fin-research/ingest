@@ -88,6 +88,33 @@ describe("article workflow steps", () => {
       await instance.dispose();
     }
   });
+
+  it("archives subscribed DM text without downloading WeChat and retains the list long URL", async () => {
+    const instanceId = "workflow-subscribed-dm";
+    const instance = await introspectWorkflowInstance(env.ARTICLE_WORKFLOW, instanceId);
+    const sourceUrl = "https://mp.weixin.qq.com/s?__biz=test&mid=1&idx=1&sn=test";
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS article (id TEXT PRIMARY KEY, link TEXT, updated_at TEXT)").run();
+    await env.DB.prepare("INSERT INTO article (id) VALUES (?)").bind(instanceId).run();
+    try {
+      await instance.modify(async (modifier) => {
+        await modifier.mockStepResult({ name: "extract article features with Responses API" }, {
+          title: "假期订阅研报", author: "关注公众号", summary: "文字研报摘要", importance: 60,
+          keywords: [{ topic: "资金面", fact: "事实", interpretation: "解读", impact: "影响" }],
+        });
+        await modifier.mockStepResult({ name: "store article features in D1" }, { stored: true });
+        await modifier.mockStepResult({ name: "associate article with recent policies" }, { matches: 0 });
+      });
+      await env.ARTICLE_WORKFLOW.create({ id: instanceId, params: {
+        id: instanceId, title: "假期订阅研报", publishedAt: "2026-10-01T23:00:00Z",
+        source: "wechat", sourceUrl, subscriptionContent: "假期文字正文。",
+      } });
+      await instance.waitForStatus("complete");
+      expect(await instance.waitForStepResult({ name: "prepare subscribed article from DM" })).toBeInstanceOf(ReadableStream);
+      const archived = await env.ARTICLE_BUCKET.get("report/2026-10-02/假期订阅研报.md");
+      expect(await archived?.text()).toBe("# 假期订阅研报\n\n假期文字正文。 \n");
+      expect(await env.DB.prepare("SELECT link FROM article WHERE id = ?").bind(instanceId).first("link")).toBe(sourceUrl);
+    } finally { await instance.dispose(); }
+  });
 });
 
 describe("Policy aggregation workflow steps", () => {

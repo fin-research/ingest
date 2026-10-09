@@ -12,11 +12,13 @@
 - 修改前搜索现有 adapter、校验器和测试；不要绕过 `article.ts`、`ai-gateway.ts` 或既有 Workflow 步骤直接实现重复逻辑。
 - 工作日采集 Cron 和 09:20 的公开市场播报使用 `wrangler.jsonc` 中的既有调度；步骤与重试规则见[公开市场播报](docs/modules/open-market.md)。
 - 列表固定请求 `tag=市场解读&pageSize=100`，并再次执行精确标签过滤。
+- 公众号订阅只读取 DATA `/wechat-articles?onlySubscription=true&pageSize=100`；候选先按标题与上海自然日查重，再取 DM 非空正文快照传入 ArticleWorkflow。订阅原文链接使用列表长 URL，不使用详情 link；原 news 短链抓取与 DM 回退保持原样。
 - 政策列表固定请求 `tag=中央政策&pageSize=100`，并再次执行精确标签过滤；政策归并必须由 `PolicyWorkflow` 完成。
 - `ARTICLE_API_BASE_URL` 固定为 `https://eastmoney.hasbai.xyz/data`，统一读取 `/data/news` 与详情路由。
 - 所有 Data 列表和详情通过 `src/data-fetcher.ts` 使用 `DATA` / `InternalData` Service Binding；发布前确认 Data Worker 已提供该入口，不以公网请求绕过登录保护。
 - `/data/news` 是顶层 JSON array；请求必须用 `fields` 只取 `sentimentId,newsId,title,time,tags`，公开市场播报不按 `important` 筛选；不得恢复 `list` 或 `data` envelope 假设。详情仍为顶层 object。
-- 每轮 D1 批量查重；重复轮询不得更新已有记录。新增项一次 `batch()` 写入，Workflow 批量启动失败时删除本轮新增去重行以便重试。
+- 每轮 D1 批量查重；重复轮询不得更新已有记录。新增项每批一次 `batch()` 写入，Workflow 启动失败后先对账，仅删除确定未启动的本批新增去重行以便重试。
+- 标题日期去重必须在同条 D1 insert 内原子检查；Workflow 每批最多100条，仅回滚确定未启动的本批记录。每轮独立对账未特征化记录，网络结果未知时保留并下轮重查。
 - Workflow 步骤必须幂等，所有 Promise 必须 await。公众号直连失败时回退 DM 正文。
 - 政策与研报关联使用双向增量触发：政策落库时匹配已有研报，研报特征落库时匹配近期政策；人工关联或排除优先于 AI，后续自动任务不得覆盖。
 - 研报正文不写 D1；政策正文继续保留在 `policy_news` 供详情与点评读取。R2 保存两类用于索引的 Markdown，写入前统一应用既有中文标点补空格兼容处理。

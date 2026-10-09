@@ -4,7 +4,7 @@ D1 schema 以 [migrations](../migrations) 为事实来源。本文件只维护 I
 
 ## `article`
 
-- `id`：文章主键，也是增量去重依据。
+- `id`：文章主键；增量同时按标题首尾空白归一化与上海自然日去重。
 - `news_id`：上游兼容 ID。
 - `title`、`published_at`：文章标识与发布时间。
 - `created_at`、`updated_at`：发现和更新时点，使用 ISO 字符串。
@@ -32,10 +32,12 @@ D1 schema 以 [migrations](../migrations) 为事实来源。本文件只维护 I
 
 ## 写入规则
 
-- 轮询先用一个 `IN (...)` 批量查询现有 ID。
-- 新记录使用准备好的 insert statement 和一次 `batch()`；`ON CONFLICT(id) DO NOTHING` 处理并发重复发现。
+- 轮询以每组20个候选查询现有ID和候选日期、标题，避免D1参数上限；不读取正文。
+- 新记录每批最多100个，使用 `INSERT … SELECT … WHERE NOT EXISTS` 同时原子保护标题/上海自然日，`ON CONFLICT(id) DO NOTHING` 保护ID。无需改schema或清理历史重复。
 - 已存在文章在普通轮询中不更新，避免每五分钟写放大。
-- Workflow 批量启动失败时删除本轮实际新增的 ID，使下轮可以重试。
+- Workflow 批量启动失败时只删除确定未创建实例的本批新增ID；先前批次、已存在实例和网络结果未知的记录保留。
+- 每轮对账 `prompt_version IS NULL` 的未特征化记录，明确缺实例才重建；状态查询失败下轮继续对账，不依赖当前列表窗口。已有实例重启保留原参数。
+- 订阅首次insert保存列表长link；news首次insert不保存link，仍由旧详情步骤补充。DM正文快照只在Workflow参数中，不写D1。
 - 文章 link 只有为空或发生变化时更新。
 - Telegram 抓取在 Workflow 外按 `telegram_delivery.article_id` 去重；无新增时不创建 Workflow。新增批次只创建一个 Telegram Workflow，并依次执行“入库”“发送”两个可重试步骤。
 

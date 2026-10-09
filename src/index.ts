@@ -7,6 +7,8 @@ import {
   fetchResearchReportDetail,
   prepareAiSearchMarkdown,
   type ArticleMetadata,
+  type ArticleWorkflowParams,
+  assertWorkflowPayloadFits,
   validateArticleDetail,
   validateArticleMetadata,
 } from "./article";
@@ -41,15 +43,22 @@ import { dataFetcher } from "./data-fetcher";
 import { startOpenMarketWorkflow } from "./open-market";
 export { OmoWorkflow } from "./open-market";
 
-export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
-  override async run(event: Readonly<WorkflowEvent<ArticleMetadata>>, step: WorkflowStep) {
+export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleWorkflowParams> {
+  override async run(event: Readonly<WorkflowEvent<ArticleWorkflowParams>>, step: WorkflowStep) {
     const article = validateArticleMetadata({
       ...event.payload,
       time: event.payload.publishedAt,
     });
     const key = articleObjectKey(article);
 
-    const detailStream = await step.do(
+    if (article.source === "wechat") assertWorkflowPayloadFits(event.payload);
+    const detailStream = article.source === "wechat"
+      ? await step.do("prepare subscribed article from DM", async () => {
+          const detail = validateArticleDetail({ content: event.payload.subscriptionContent, link: article.sourceUrl });
+          await updateArticleLink(this.env.DB, article.id, article.sourceUrl!);
+          return new Blob([JSON.stringify(detail)]).stream();
+        })
+      : await step.do(
       "download article from DM",
       { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
       async () => {
@@ -60,7 +69,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
     );
     const detail = validateArticleDetail(await new Response(detailStream).json());
 
-    const documentStream = isWechatArticleLink(detail.link || "")
+    const documentStream = article.source !== "wechat" && isWechatArticleLink(detail.link || "")
       ? await step.do(
           "download WeChat article",
           {
