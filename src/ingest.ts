@@ -232,8 +232,9 @@ export class CloudflareArticleWorkflowLauncher implements ArticleWorkflowLaunche
           try {
             const instance = await this.workflow.get(workflowInstanceId(article));
             const status = await instance.status();
-            if (status.status === "errored") await instance.restart();
-            if (status.status === "unknown" || status.status === "terminated") {
+            // Existing workflows own their step retries. Restarting terminal
+            // failures here would turn bounded retries into an endless loop.
+            if (status.status === "unknown") {
               throw new Error(`article workflow is ${status.status}`);
             }
           } catch (error) {
