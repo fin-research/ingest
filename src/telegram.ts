@@ -183,11 +183,17 @@ export class CloudflareTelegramWorkflowLauncher implements TelegramWorkflowLaunc
   constructor(private readonly workflow: Env["TELEGRAM_WORKFLOW"]) {}
 
   async start(articles: ArticleMetadata[], discoveredAt: string): Promise<string> {
-    const instance = await this.workflow.create({
-      id: telegramWorkflowInstanceId(discoveredAt),
-      params: { articles, discoveredAt },
-    });
-    return instance.id;
+    const id = telegramWorkflowInstanceId(discoveredAt);
+    try {
+      const instance = await this.workflow.create({ id, params: { articles, discoveredAt } });
+      return instance.id;
+    } catch (error) {
+      try {
+        const existing = await this.workflow.get(id);
+        await existing.status();
+        return existing.id;
+      } catch { throw error; }
+    }
   }
 }
 

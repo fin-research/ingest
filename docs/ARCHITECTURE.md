@@ -28,3 +28,7 @@
 - `policy.ts` 拥有政策认领恢复、归并与双向关系，`policy-archive.ts` 拥有政策归档。
 - `feature-extraction.ts` 拥有特征 Prompt/Schema；`ai-gateway.ts` 是统一 AI adapter，参数只按 [共享 AI](../../eastmoney/docs/AI.md)。
 - 资源由 Env bindings 注入，测试使用可替换 adapter 与 Workers runtime。Worker 不新增 Python、本地采集器或独立数据库。
+
+## 集中定时触发
+
+Messenger 是唯一 Cloudflare Cron，按原 UTC `*/5 0-9 * * MON-FRI` 经私有 `ScheduledTasks` 传入计划分钟，复用 `runScheduledCollection`。Ingest `triggers.crons` 为空，采集时间窗、09:20 OMO、交易日检查及列表契约不变。Policy/Telegram 同槽重复创建会确认既有实例状态，不自动重启；任何分支失败仍等待其余分支后向调用方报告。

@@ -1,4 +1,5 @@
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
+import { scheduledTasks } from "./scheduled-tasks";
+import { WorkerEntrypoint, WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { scheduledTradingDay } from "./trading-calendar";
 
 import {
@@ -320,15 +321,20 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
-    const scheduledAt = new Date(controller.scheduledTime).toISOString();
-    console.log(JSON.stringify({ event: "ingest_cron_started", cron: controller.cron,
-      scheduledAt, startedAt: new Date().toISOString(), delayMs: Date.now() - controller.scheduledTime }));
-    if (!await scheduledTradingDay(env, controller.scheduledTime)) return;
+    await runScheduledCollection(env, controller.scheduledTime);
+  },
+} satisfies ExportedHandler<Env>;
+
+export async function runScheduledCollection(env: Env, scheduledTime: number): Promise<void> {
+    const scheduledAt = new Date(scheduledTime).toISOString();
+    console.log(JSON.stringify({ event: "ingest_cron_started",
+      scheduledAt, startedAt: new Date().toISOString(), delayMs: Date.now() - scheduledTime }));
+    if (!await scheduledTradingDay(env, scheduledTime)) return;
     const results = await Promise.allSettled([
       collectResearchReports(env),
       collectCentralBankNotifications(env, scheduledAt),
       collectPolicies(env, scheduledAt),
-      startOpenMarketWorkflow(env, controller.scheduledTime),
+      startOpenMarketWorkflow(env, scheduledTime),
     ]);
     const [researchReports, telegramNotifications, policies] = results;
     const openMarket = results[3];
@@ -372,8 +378,11 @@ export default {
         : null)
       .filter((name): name is string => name !== null);
     if (failed.length > 0) throw new Error(`scheduled collection failed: ${failed.join(", ")}`);
-  },
-} satisfies ExportedHandler<Env>;
+}
+
+export class ScheduledTasks extends WorkerEntrypoint<Env> {
+  override fetch(request: Request) { return scheduledTasks(request, this.env); }
+}
 
 function markdownStream(
   article: ArticleMetadata,

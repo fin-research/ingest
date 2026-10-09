@@ -852,11 +852,16 @@ export class CloudflarePolicyWorkflowLauncher implements PolicyWorkflowLauncher 
   constructor(private readonly workflow: Env["POLICY_WORKFLOW"]) {}
 
   async start(workflowInstanceId: string): Promise<string> {
-    const instance = await this.workflow.create({
-      id: workflowInstanceId,
-      params: { workflowInstanceId },
-    });
-    return instance.id;
+    try {
+      const instance = await this.workflow.create({ id: workflowInstanceId, params: { workflowInstanceId } });
+      return instance.id;
+    } catch (error) {
+      try {
+        const existing = await this.workflow.get(workflowInstanceId);
+        await existing.status();
+        return existing.id;
+      } catch { throw error; }
+    }
   }
 }
 
