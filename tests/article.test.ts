@@ -173,6 +173,23 @@ describe("research report helpers", () => {
     ).rejects.toThrow("content is required");
   });
 
+  it.each(["", " \n\t　"])("allows an explicit empty text %j result only when the caller opts in", async (content) => {
+    expect(await fetchResearchReportDetail("https://eastmoney.hasbai.xyz/data", validateArticleMetadata(article),
+      async () => Response.json({ content }), { allowEmptyContent: true })).toEqual({ content: "" });
+  });
+
+  it.each([{}, { content: null }, { content: 123 }, { content: [] }])("still rejects malformed details %j when empty text is allowed", async (payload) => {
+    await expect(fetchResearchReportDetail("https://eastmoney.hasbai.xyz/data", validateArticleMetadata(article),
+      async () => Response.json(payload), { allowEmptyContent: true })).rejects.toThrow("content is required");
+  });
+
+  it("does not turn an HTTP failure or invalid JSON into an empty article", async () => {
+    for (const response of [new Response("unavailable", { status: 503 }), new Response("invalid JSON")]) {
+      await expect(fetchResearchReportDetail("https://eastmoney.hasbai.xyz/data", validateArticleMetadata(article),
+        async () => response, { allowEmptyContent: true })).rejects.toThrow();
+    }
+  });
+
   it("validates subscribed long URLs while accepting legacy news payloads", async () => {
     const url = "https://mp.weixin.qq.com/s?__biz=test&mid=1&idx=1&sn=test";
     const result = await fetchSubscribedWechatList("https://eastmoney.hasbai.xyz/data", async () => Response.json([

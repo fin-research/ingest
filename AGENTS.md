@@ -19,7 +19,7 @@
 - `/data/news` 是顶层 JSON array；请求必须用 `fields` 只取 `sentimentId,newsId,title,time,tags`，公开市场播报不按 `important` 筛选；不得恢复 `list` 或 `data` envelope 假设。详情仍为顶层 object。
 - Cron只读取列表、批量查重和启动Workflow，每批最多100条元数据；不在Workflow外写D1、不预抓正文、不做实例对账或自动恢复。
 - ArticleWorkflow第一步存D1元数据，同条insert原子保护标题与上海自然日。同ID步骤重试可继续，不同ID的标题日期重复直接结束；普通轮询不更新已有记录，不自动重启失败或人工终止实例。
-- Workflow 步骤必须幂等，所有 Promise 必须 await。公众号直连失败时回退 DM 正文。
+- Workflow 步骤必须幂等，所有 Promise 必须 await。明确空字符串或纯空白正文正常跳过并保留D1元数据，不触发失败告警；字段缺失、类型错误和HTTP/JSON异常不得伪装为空正文。公众号直连失败时回退 DM 正文。
 - 政策与研报关联使用双向增量触发：政策落库时匹配已有研报，研报特征落库时匹配近期政策；人工关联或排除优先于 AI，后续自动任务不得覆盖。
 - 研报正文不写 D1；政策正文继续保留在 `policy_news` 供详情与点评读取。R2 保存两类用于索引的 Markdown，写入前统一应用既有中文标点补空格兼容处理。
 - R2 key、元数据和 AI Search 独立索引遵循 [共享归档协议](../eastmoney/docs/DATABASE.md#研究归档协议)，两类归档复用既有 adapter。

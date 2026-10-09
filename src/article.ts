@@ -88,11 +88,12 @@ export function validateArticleMetadata(value: unknown): ArticleMetadata {
   };
 }
 
-export function validateArticleDetail(value: unknown): ArticleDetail {
+export function validateArticleDetail(value: unknown, options: { allowEmptyContent?: boolean } = {}): ArticleDetail {
   const row = jsonObject(value, "news detail");
   const link = optionalHttpUrl(row.link, "link", 4_096);
   return {
-    content: requireString(row.content, "content", MAX_MARKDOWN_BYTES),
+    content: options.allowEmptyContent && typeof row.content === "string" && !row.content.trim()
+      ? "" : requireString(row.content, "content", MAX_MARKDOWN_BYTES),
     ...(link ? { link } : {}),
   };
 }
@@ -183,12 +184,13 @@ export async function fetchResearchReportDetail(
   apiBaseUrl: string,
   article: ArticleMetadata,
   fetcher: Fetcher = fetch,
+  options: { allowEmptyContent?: boolean } = {},
 ): Promise<ArticleDetail> {
   const response = await fetcher(apiUrl(apiBaseUrl, `news/${encodeURIComponent(article.id)}`), {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(30_000),
   });
-  return validateArticleDetail(await readJsonResponse(response, "news detail"));
+  return validateArticleDetail(await readJsonResponse(response, "news detail"), options);
 }
 
 export function workflowInstanceId(article: ArticleMetadata): string {

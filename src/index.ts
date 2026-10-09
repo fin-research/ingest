@@ -60,13 +60,17 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
       "download article from DM",
       { retries: { limit: 5, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" },
       async () => {
-        const fetched = await fetchResearchReportDetail(this.env.ARTICLE_API_BASE_URL, article, dataFetcher(this.env));
+        const fetched = await fetchResearchReportDetail(this.env.ARTICLE_API_BASE_URL, article, dataFetcher(this.env), { allowEmptyContent: true });
         const detail = article.source === "wechat" ? { ...fetched, link: article.sourceUrl } : fetched;
         if (detail.link) await updateArticleLink(this.env.DB, article.id, detail.link);
         return new Blob([JSON.stringify(detail)]).stream();
       },
     );
-    const detail = validateArticleDetail(await new Response(detailStream).json());
+    const detail = validateArticleDetail(await new Response(detailStream).json(), { allowEmptyContent: true });
+    if (!detail.content) {
+      console.log(JSON.stringify({ event: "article_skipped", articleId: article.id, reason: "empty-content" }));
+      return { articleId: article.id, status: "skipped", reason: "empty-content" };
+    }
 
     const documentStream = article.source !== "wechat" && isWechatArticleLink(detail.link || "")
       ? await step.do(

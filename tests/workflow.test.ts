@@ -12,6 +12,7 @@ declare module "cloudflare:workers" {
 describe("article workflow steps", () => {
   beforeEach(async () => {
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS article (id TEXT PRIMARY KEY, news_id TEXT, title TEXT NOT NULL, published_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, link TEXT, prompt_version TEXT)").run();
+    await env.DB.prepare("DELETE FROM article").run();
   });
   it("archives without an AI Search binding", () => {
     expect(Object.keys(env).some(key => key.endsWith("_SEARCH"))).toBe(false);
@@ -136,17 +137,21 @@ describe("article workflow steps", () => {
     } finally { await instance.dispose(); }
   });
 
-  it("retains metadata after empty text fails so normal collection does not launch it again", async () => {
-    const instanceId = "empty-body-workflow";
+  it.each(["", " \n\t　"])("normally skips empty text %j and retains metadata so collection does not launch it again", async (content) => {
+    const instanceId = content ? "whitespace-body-workflow" : "empty-body-workflow";
     const sourceUrl = "https://mp.weixin.qq.com/s?__biz=test&mid=1&idx=1&sn=test";
     const article = { id: instanceId, title: "空正文文章", publishedAt: "2026-10-01T10:00:00+08:00", source: "wechat" as const, sourceUrl };
     const instance = await introspectWorkflowInstance(env.ARTICLE_WORKFLOW, instanceId);
     try {
       await instance.modify(async (modifier) => {
-        await modifier.mockStepResult({ name: "download article from DM" }, stream(JSON.stringify({ content: "", link: sourceUrl })));
+        await modifier.mockStepResult({ name: "download article from DM" }, stream(JSON.stringify({ content, link: sourceUrl })));
       });
       await env.ARTICLE_WORKFLOW.create({ id: instanceId, params: article });
-      await instance.waitForStatus("errored");
+      await instance.waitForStatus("complete");
+      expect((await (await env.ARTICLE_WORKFLOW.get(instanceId)).status()).output).toEqual({
+        articleId: article.id, status: "skipped", reason: "empty-content",
+      });
+      expect(await env.ARTICLE_BUCKET.get("report/2026-10-01/空正文文章.md")).toBeNull();
       expect(await env.DB.prepare("SELECT title FROM article WHERE id = ?").bind(article.id).first("title")).toBe(article.title);
       let launches = 0;
       expect(await runCollection({ apiBaseUrl: "https://eastmoney.hasbai.xyz/data", repository: new D1ArticleRepository(env.DB),
