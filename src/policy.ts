@@ -11,7 +11,7 @@ import {
   type AiGatewayCredentials,
 } from "./ai-gateway";
 
-export const POLICY_PROMPT_VERSION = "policy-aggregation-v3";
+export const POLICY_PROMPT_VERSION = "policy-aggregation-v4";
 export const POLICY_BATCH_SIZE = 40;
 export const POLICY_DETAIL_CONCURRENCY = 5;
 export const POLICY_ASSOCIATION_CONCURRENCY = 5;
@@ -47,6 +47,18 @@ const policyGroupSchema = z.object({
   policyDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isIsoDate, "invalid policy date"),
   newsIds: z.array(z.string().min(1)).max(POLICY_BATCH_SIZE),
 }).strict();
+
+// Expose the no-op prohibition to structured output, not only superRefine.
+const actionablePolicyGroupSchema = z.union([
+  policyGroupSchema.extend({
+    newsIds: z.array(z.string().min(1)).min(1).max(POLICY_BATCH_SIZE),
+  }),
+  policyGroupSchema.extend({
+    existingPolicyId: z.string().min(1),
+    mergePolicyIds: z.array(z.string().min(1)).min(1).max(100),
+    newsIds: z.array(z.string().min(1)).max(0),
+  }),
+]);
 
 export type PolicyCategory = z.infer<typeof policyCategorySchema>;
 export type PolicyImportance = z.infer<typeof policyImportanceSchema>;
@@ -230,6 +242,8 @@ const AGGREGATION_INSTRUCTIONS = `你是面向专业投资者的中国政策研�
 已有卡片也必须按上述口径复核。若多个 existingPolicies 实际是同一政策包的碎片：用 existingPolicyId 指向标题和摘要最能覆盖整组政策包的卡片，并把其余卡片 ID 全部放入 mergePolicyIds；若没有明显总览卡片，选 firstNewsAt 最早者作为 existingPolicyId。即使本批没有属于该政策包的新资讯，也可以输出 newsIds=[] 的合并组。mergeProtected=true 的卡片包含人工关系或研究点评，只能作为 existingPolicyId 保留，绝不能放入 mergePolicyIds。新建政策时 existingPolicyId=null 且 mergePolicyIds=[]。
 
 标题应采用覆盖整组措施的市场通行简称或政策包名称；只有单一文件事件才使用正式文件名。summary 必须累计概括该政策包的全部输入事实，包括 existingPolicies 和 pendingNews，不补充外部知识。policyDate 使用集中发布日或正式发布日；材料未提供时使用该组最早资讯的上海日期。departments 应累计保留整组输入明确出现的发布部门。
+
+只输出接收本批新资讯或实际合并已有卡片的 group。未接收新资讯且无需合并的已有卡片仅作背景参考，复核后不要输出。newsIds=[] 时，existingPolicyId 必须非空且 mergePolicyIds 至少包含一个其他已有卡片 ID；禁止输出 newsIds=[] 且 mergePolicyIds=[] 的无操作分组。
 
 必须覆盖全部待处理 newsIds，且每个 newsId 只能出现一次。严格按 JSON Schema 输出，不输出 Markdown、解释过程或额外字段。`;
 
@@ -881,7 +895,7 @@ function policyAggregationSchema(
     existingPolicies.filter((policy) => !policy.mergeProtected).map((policy) => policy.id),
   );
   return z.object({
-    groups: z.array(policyGroupSchema).min(1).max(POLICY_BATCH_SIZE + existingPolicies.length),
+    groups: z.array(actionablePolicyGroupSchema).min(1).max(POLICY_BATCH_SIZE + existingPolicies.length),
   }).strict().superRefine((value, context) => {
     const assigned = new Set<string>();
     const reusedPolicies = new Set<string>();

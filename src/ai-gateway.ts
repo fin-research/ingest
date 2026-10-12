@@ -31,11 +31,23 @@ export interface AiGatewayCredentials {
   token: string;
 }
 
+export type AiGatewayFailureReason =
+  | "network_error"
+  | "response_read_error"
+  | "http_error"
+  | "invalid_response_json"
+  | "invalid_response_envelope"
+  | "response_not_completed"
+  | "empty_output"
+  | "invalid_output_json"
+  | "business_schema_invalid";
+
 export interface AiGatewayAttemptFailure {
   provider: string;
   status: number | null;
   gatewayLogId: string;
   retryable: boolean;
+  reason: AiGatewayFailureReason;
   message: string;
 }
 
@@ -44,6 +56,7 @@ export class AiGatewayResponseError extends Error {
   readonly status: number | null;
   readonly gatewayLogId: string;
   readonly retryable: boolean;
+  readonly reason: AiGatewayFailureReason;
 
   constructor(failure: AiGatewayAttemptFailure) {
     super(
@@ -57,6 +70,7 @@ export class AiGatewayResponseError extends Error {
     this.status = failure.status;
     this.gatewayLogId = failure.gatewayLogId;
     this.retryable = failure.retryable;
+    this.reason = failure.reason;
   }
 
   toFailure(): AiGatewayAttemptFailure {
@@ -65,6 +79,7 @@ export class AiGatewayResponseError extends Error {
       status: this.status,
       gatewayLogId: this.gatewayLogId,
       retryable: this.retryable,
+      reason: this.reason,
       message: this.message,
     };
   }
@@ -81,7 +96,8 @@ export class AiGatewayRetryError extends Error {
             (failure) =>
               failure.provider +
               (failure.status === null ? "" : ` HTTP ${failure.status}`) +
-              (failure.gatewayLogId ? ` log ${failure.gatewayLogId}` : ""),
+              (failure.gatewayLogId ? ` log ${failure.gatewayLogId}` : "") +
+              ` reason ${failure.reason}`,
           )
           .join("; "),
     );
@@ -167,7 +183,7 @@ export async function generateAiGatewayObject<OUTPUT>(
       provider: primary.error.provider,
       status: primary.error.status,
       gateway_log_id: primary.error.gatewayLogId,
-      error: primary.error.message,
+      reason: primary.error.reason,
     }),
   );
 
@@ -232,6 +248,7 @@ async function attemptProvider<OUTPUT>(
               status: null,
               gatewayLogId: "",
               retryable: true,
+              reason: "network_error",
               message: error instanceof Error ? error.message : String(error),
             }),
     };
@@ -301,6 +318,7 @@ async function runProvider<OUTPUT>(
       status: null,
       gatewayLogId: "",
       retryable: true,
+      reason: "network_error",
       message: error instanceof Error ? error.message : String(error),
     });
   }
@@ -315,6 +333,7 @@ async function runProvider<OUTPUT>(
       status: response.status,
       gatewayLogId,
       retryable: true,
+      reason: "response_read_error",
       message: error instanceof Error ? error.message : String(error),
     });
   }
@@ -325,6 +344,7 @@ async function runProvider<OUTPUT>(
       gatewayLogId,
       retryable:
         response.status === 408 || response.status === 429 || response.status >= 500,
+      reason: "http_error",
       message: summarizeErrorResponse(responseText),
     });
   }
@@ -333,7 +353,7 @@ async function runProvider<OUTPUT>(
   try {
     payload = JSON.parse(responseText);
   } catch {
-    throw outputError(provider, response.status, gatewayLogId, "response body is not JSON");
+    throw outputError(provider, response.status, gatewayLogId, "response body is not JSON", "invalid_response_json");
   }
   const envelope = responseEnvelopeSchema.safeParse(payload);
   if (!envelope.success) {
@@ -342,6 +362,7 @@ async function runProvider<OUTPUT>(
       response.status,
       gatewayLogId,
       `invalid Responses envelope: ${schemaErrorSummary(envelope.error)}`,
+      "invalid_response_envelope",
     );
   }
   if (envelope.data.status !== "completed") {
@@ -349,18 +370,18 @@ async function runProvider<OUTPUT>(
       envelope.data.error?.message ??
       envelope.data.incomplete_details?.reason ??
       `Responses status ${envelope.data.status}`;
-    throw outputError(provider, response.status, gatewayLogId, details);
+    throw outputError(provider, response.status, gatewayLogId, details, "response_not_completed");
   }
   const outputText = extractOutputText(envelope.data.output);
   if (!outputText.trim()) {
-    throw outputError(provider, response.status, gatewayLogId, "Responses output_text is empty");
+    throw outputError(provider, response.status, gatewayLogId, "Responses output_text is empty", "empty_output");
   }
 
   let output: unknown;
   try {
     output = JSON.parse(outputText);
   } catch {
-    throw outputError(provider, response.status, gatewayLogId, "output_text is not JSON");
+    throw outputError(provider, response.status, gatewayLogId, "output_text is not JSON", "invalid_output_json");
   }
   const validated = schema.safeParse(output);
   if (!validated.success) {
@@ -369,6 +390,7 @@ async function runProvider<OUTPUT>(
       response.status,
       gatewayLogId,
       `output failed business schema: ${schemaErrorSummary(validated.error)}`,
+      "business_schema_invalid",
     );
   }
   const reasoningSummary = reasoningSummaryMetrics(envelope.data.output);
@@ -472,12 +494,14 @@ function outputError(
   status: number,
   gatewayLogId: string,
   message: string,
+  reason: AiGatewayFailureReason,
 ): AiGatewayResponseError {
   return new AiGatewayResponseError({
     provider,
     status,
     gatewayLogId,
     retryable: true,
+    reason,
     message,
   });
 }

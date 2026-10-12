@@ -303,10 +303,40 @@ describe("AI Gateway provider-specific Responses", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(AiGatewayRetryError);
       expect((error as AiGatewayRetryError).failures).toMatchObject([
-        { provider: "custom-codex", gatewayLogId: "log-primary" },
-        { provider: "custom-codex", gatewayLogId: "log-retry" },
+        { provider: "custom-codex", gatewayLogId: "log-primary", reason: "http_error" },
+        { provider: "custom-codex", gatewayLogId: "log-retry", reason: "http_error" },
       ]);
+      expect((error as Error).message).toContain("reason http_error");
+      expect((error as Error).message).not.toContain("primary down");
+      expect((error as Error).message).not.toContain("retry down");
     }
+  });
+
+  it("reports business validation for HTTP 200 failures without exposing raw output", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      const attempt = JSON.parse(new Headers(init?.headers).get("cf-aig-metadata") ?? "null").ai_provider_attempt;
+      const response = responsesOutput({ ok: "PRIVATE_OUTPUT" });
+      response.headers.set("cf-aig-log-id", `log-${attempt}`);
+      return response;
+    });
+    await expect(generateAiGatewayObject(
+      credentials,
+      [{ role: "user", content: "PRIVATE_INPUT" }],
+      z.object({ ok: z.boolean() }).strict(),
+      "probe",
+      options,
+      fetcher,
+    )).rejects.toThrow(
+      "custom-codex HTTP 200 log log-primary reason business_schema_invalid; custom-codex HTTP 200 log log-retry reason business_schema_invalid",
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(warnSpy.mock.calls.flat().join(" ")).not.toContain("PRIVATE");
+    expect(JSON.parse(String(warnSpy.mock.calls[0]?.[0]))).toMatchObject({
+      status: 200,
+      reason: "business_schema_invalid",
+      gateway_log_id: "log-primary",
+    });
   });
 });
 

@@ -259,7 +259,7 @@ export class PolicyWorkflow extends WorkflowEntrypoint<Env, PolicyWorkflowParams
 
     const aggregation = await step.do(
       "aggregate central policy news with Responses API",
-      { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" }, timeout: "5 minutes" },
+      { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" }, timeout: "11 minutes" },
       async () => {
         const existing = await repository.loadRecentPolicies(evidence[0].publishedAt);
         return await generatePolicyAggregation(

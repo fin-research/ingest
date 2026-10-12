@@ -191,10 +191,19 @@ describe("policy package aggregation", () => {
     expect(requests[0]?.instructions).toContain("按“政策事件/政策包”而不是按“文件篇数”聚合");
     expect(requests[0]?.instructions).toContain("中国境内资金面、货币市场和利率");
     const format = (requests[0]?.text as {
-      format: { schema: { properties: { groups: { items: { properties: Record<string, unknown> } } } } };
+      format: { schema: { properties: { groups: { items: { anyOf: Array<{ properties: Record<string, unknown> }> } } } } };
     }).format;
-    expect(format.schema.properties.groups.items.properties).toMatchObject({
-      importance: { type: "string", enum: ["important", "related", "general"] },
+    expect(format.schema.properties.groups.items.anyOf).toHaveLength(2);
+    for (const branch of format.schema.properties.groups.items.anyOf) {
+      expect(branch.properties.importance).toEqual({
+        type: "string", enum: ["important", "related", "general"],
+      });
+    }
+    expect(format.schema.properties.groups.items.anyOf[0]?.properties.newsIds).toMatchObject({ minItems: 1 });
+    expect(format.schema.properties.groups.items.anyOf[1]?.properties).toMatchObject({
+      existingPolicyId: { type: "string", minLength: 1 },
+      mergePolicyIds: { minItems: 1 },
+      newsIds: { maxItems: 0 },
     });
     const input = requests[0]?.input as Array<{ content: string }>;
     const prompt = JSON.parse(input[0]?.content ?? "null") as {
@@ -206,6 +215,65 @@ describe("policy package aggregation", () => {
       "2026-08-28",
       "2026-08-28",
     ]);
+  });
+
+  const newEvidence: PolicyNewsEvidence[] = ["new-1", "new-2"].map(id => ({
+    id,
+    title: "新质生产力意见要点",
+    publishedAt: "2026-10-09T18:00:00+08:00",
+    discoveredAt: "2026-10-12T02:05:00.000Z",
+    workflowInstanceId: "policy-regression",
+    content: "中共中央、国务院印发意见，部署科技创新和金融产品供给等举措。",
+  }));
+  const actionableGroup = {
+    existingPolicyId: "existing",
+    mergePolicyIds: [],
+    title: "新质生产力意见",
+    summary: "中共中央、国务院印发意见，部署科技创新和产业创新融合，并增加金融创新产品供给。",
+    category: "industry",
+    importance: "related",
+    departments: ["中共中央", "国务院"],
+    policyDate: "2026-10-09",
+    newsIds: ["new-1", "new-2"],
+  };
+
+  it("retries a no-op existing card and accepts only the actionable existing card", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const fetcher = vi.fn<typeof fetch>(async () => responsesOutput({
+      groups: [actionableGroup],
+    })).mockImplementationOnce(async () => responsesOutput({
+      groups: [
+        { ...actionableGroup, existingPolicyId: "unrelated", newsIds: [] },
+        actionableGroup,
+      ],
+    }));
+
+    const result = await generatePolicyAggregation(
+      { accountId: "account", gatewayId: "default", token: "token" },
+      newEvidence,
+      [policyCandidate("existing", "新质生产力意见", false), policyCandidate("unrelated", "公募基金规则修订", false)],
+      fetcher,
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.groups).toEqual([actionableGroup]);
+  });
+
+  it.each([
+    { name: "no-op existing card", groups: [{ ...actionableGroup, existingPolicyId: "unrelated", newsIds: [] }, actionableGroup] },
+    { name: "missing news", groups: [{ ...actionableGroup, newsIds: ["new-1"] }] },
+    { name: "duplicate news", groups: [{ ...actionableGroup, newsIds: ["new-1", "new-1", "new-2"] }] },
+    { name: "new card merging existing cards", groups: [{ ...actionableGroup, existingPolicyId: null, mergePolicyIds: ["unrelated"] }] },
+  ])("rejects $name even after retry", async ({ groups }) => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetcher = vi.fn<typeof fetch>(async () => responsesOutput({ groups }));
+    await expect(generatePolicyAggregation(
+      { accountId: "account", gatewayId: "default", token: "token" },
+      newEvidence,
+      [policyCandidate("existing", "新质生产力意见", false), policyCandidate("unrelated", "公募基金规则修订", false)],
+      fetcher,
+    )).rejects.toThrow("reason business_schema_invalid");
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it("allows fragmented existing cards to consolidate into an umbrella card", async () => {
