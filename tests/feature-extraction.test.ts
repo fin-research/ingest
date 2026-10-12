@@ -26,8 +26,8 @@ const validFeatures = {
 };
 
 describe("article feature extraction", () => {
-  it("uses gpt-5.6-luna Responses while keeping thinking disabled", () => {
-    expect(ARTICLE_FEATURE_MODEL).toBe("gpt-5.6-luna");
+  it("uses gpt-6-luna Responses while keeping thinking disabled", () => {
+    expect(ARTICLE_FEATURE_MODEL).toBe("gpt-6-luna");
   });
 
   it("sends complete evidence separately from instructions with the versioned business schema", () => {

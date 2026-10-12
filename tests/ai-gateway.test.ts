@@ -88,12 +88,12 @@ describe("AI Gateway provider-specific Responses", () => {
     expect(JSON.parse(headers.get("cf-aig-metadata") ?? "null")).toEqual({
       article_id: "A001",
       prompt_version: "v5",
-      ai_model: "gpt-5.6-luna",
+      ai_model: "gpt-6-luna",
       ai_provider: "custom-codex",
       ai_provider_attempt: "primary",
     });
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       prompt_cache_key: "article-features:v5",
       instructions: "system",
       reasoning: {

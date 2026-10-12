@@ -3,7 +3,7 @@ import { z } from "zod";
 const MAX_AI_GATEWAY_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_AI_GATEWAY_TIMEOUT_MS = 300_000;
 
-export const AI_GATEWAY_MODEL = "gpt-5.6-luna" as const;
+export const AI_GATEWAY_MODEL = "gpt-6-luna" as const;
 export const AI_GATEWAY_PROVIDER = "custom-codex" as const;
 export const AI_GATEWAY_REASONING_EFFORT_BY_TASK = {
   generation: "high",

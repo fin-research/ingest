@@ -13,6 +13,7 @@ import {
 } from "./article";
 import { generateAiGatewayObject } from "./ai-gateway";
 import {
+  ARTICLE_FEATURE_MODEL,
   ARTICLE_FEATURE_PROMPT_VERSION,
   buildR2Metadata,
   extractArticleFeatures,
@@ -110,7 +111,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<Env, ArticleMetadata> {
                 metadata: {
                   article_id: article.id,
                   prompt_version: ARTICLE_FEATURE_PROMPT_VERSION,
-                  tags: "eastmoney,feature-extraction,model:gpt-5.6-luna",
+                  tags: `eastmoney,feature-extraction,model:${ARTICLE_FEATURE_MODEL}`,
                 },
               },
             ),
