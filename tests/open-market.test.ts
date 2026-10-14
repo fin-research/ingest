@@ -137,6 +137,45 @@ describe("open market bulletin", () => {
     }
   });
 
+  it.each([["2026-10-13", "2026101300011051547", 650], ["2026-10-14", "2026101400011060028", 560]] as const)(
+    "completes the real no-maturity bulletin for %s without leaking evidence into the result", async (pollDate, articleId, amount) => {
+      const content = `中国央行今日开展${amount}亿元7天逆回购操作，投标量${amount}亿元，中标量${amount}亿元，操作利率为1.40%。DM数据显示，今日暂无逆回购到期，当日实现净投放${amount}亿元。`;
+      const fetcher: Fetcher = async input => {
+        const url = new URL(String(input));
+        if (url.pathname === "/data/news") return Response.json([{ ...row, sentimentId: articleId, time: `${pollDate}T09:21:37+08:00` }]);
+        if (url.pathname === "/data/omo") return Response.json([{ operationDate: pollDate, operationName: "逆回购", duration: "7D", operationAmount: amount }]);
+        return Response.json({ content });
+      };
+      const time = clock();
+      expect(await runOmo(pollDate, time.step, { apiBaseUrl, fetcher })).toEqual({
+        date: pollDate, status: "found", articleId, attempts: 1, errors: 0,
+        text: `中国央行今日开展${amount}亿元7天逆回购操作，操作利率为1.40%。今日无逆回购到期，当日实现净投放${amount}亿元。`,
+      });
+      expect(time.waits).toHaveLength(0);
+    },
+  );
+
+  it("requires explicit same-day no-maturity evidence and matching valid API injection rows", async () => {
+    const injection = { operationDate: date, operationName: "逆回购", duration: "7D", operationAmount: 7620 };
+    expect(() => buildOpenMarketText(date, cleaned, [injection])).toThrow("OMO maturity data unavailable");
+    for (const payload of [[], [{ ...injection, operationDate: "2026-09-16" }],
+      [{ ...injection, operationAmount: null }], [{ ...injection, operationAmount: 6000 }],
+      [{ ...injection, duration: null }], [{ ...injection, operationName: null }], [{ ...injection, operationName: "MLF" }]]) {
+      expect(() => buildOpenMarketText(date, cleaned, payload, true)).toThrow();
+    }
+    expect(() => buildOpenMarketText(date, cleaned, maturities, true)).toThrow("contradicts bulletin");
+    expect(buildOpenMarketText(date, cleaned, [{ ...maturities[0], operationAmount: 0 }], true))
+      .toContain("净投放7620亿元");
+    expect(buildOpenMarketText(date, cleaned, [{ ...maturities[0], operationName: "MLF到期", duration: "1Y", operationAmount: -1000 }], true))
+      .toContain("今日有1000亿元1年期MLF到期，当日实现净投放6620亿元");
+    for (const tail of ["今日暂无逆回购到期数据。", "昨日暂无逆回购到期。", "明日无逆回购到期。", "当日实现净投放7620亿元。"]) {
+      const fetcher: Fetcher = async input => new URL(String(input)).pathname === "/data/news"
+        ? Response.json([row]) : Response.json({ content: `${cleaned}DM数据显示，${tail}` });
+      expect(await findOpenMarketBulletin(date, { apiBaseUrl, fetcher }, new AbortController().signal))
+        .toEqual({ articleId: row.sentimentId, text: cleaned });
+    }
+  });
+
   it("retries only the maturity step after upstream failure and reuses both completed checkpoints", async () => {
     const time = clock(); let news = 0, operations = 0;
     const fetcher: Fetcher = async input => {

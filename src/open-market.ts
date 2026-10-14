@@ -70,7 +70,8 @@ export async function findOpenMarketBulletin(date: string, dependencies: PollDep
     if (!text || text.length > 4096) { detailErrors += 1; continue; }
     // An unrelated central-bank headline must not become an OMO bulletin.
     try { injectionAmount(text); } catch { continue; }
-    return { articleId: article.id, text };
+    const noReverseRepoMaturities = /(?:^|[，,。；;\s])今日(?:暂无|无)逆回购到期(?:[，,。；;\s]|$)/.test(detail.content);
+    return { articleId: article.id, text, ...(noReverseRepoMaturities ? { noReverseRepoMaturities: true } : {}) };
   }
   if (detailErrors > 0) throw new Error("Open market bulletin details unavailable");
   return null;
@@ -110,7 +111,7 @@ function durationText(value: string | null): string {
     .replace(/^(\d+)Y$/i, "$1年期").replace(/^(\d+)(天|日|个月|月|年)$/, "$1$2期");
 }
 
-export function buildOpenMarketText(date: string, text: string, payload: unknown): string {
+export function buildOpenMarketText(date: string, text: string, payload: unknown, noReverseRepoMaturities = false): string {
   const rows = z.array(operationSchema).parse(payload);
   if (!rows.length) throw new Error("OMO data unavailable for today");
   if (rows.some(row => row.operationDate !== date)) throw new Error("OMO operation date mismatch");
@@ -121,6 +122,9 @@ export function buildOpenMarketText(date: string, text: string, payload: unknown
     // Repo maturities can be signed or unsigned; reverse-repo maturity always drains.
     if (!row.operationName.includes("到期") || row.operationName === "正回购到期") continue;
     if (row.operationAmount === null) throw new Error("OMO maturity amount unavailable");
+    if (noReverseRepoMaturities && row.operationName === "逆回购到期" && row.operationAmount !== 0) {
+      throw new Error("OMO reverse repo maturity contradicts bulletin");
+    }
     const name = row.operationName.replace(/到期/g, "").trim();
     const term = durationText(row.duration);
     const key = `${name}/${term}`;
@@ -128,14 +132,19 @@ export function buildOpenMarketText(date: string, text: string, payload: unknown
     maturities.set(key, { name, term, amount: (previous?.amount ?? 0) + Math.abs(row.operationAmount) });
   }
   const entries = [...maturities.values()];
-  // A partial upstream response must not silently become zero maturities.
-  // A day with no maturities needs an explicit zero-valued maturity record.
-  if (!entries.length) throw new Error("OMO maturity data unavailable for today");
+  const injection = injectionAmount(text);
+  // The news must explicitly confirm no repo maturities, and the API must
+  // corroborate the day's repo injection before absence can mean zero.
+  if (!entries.length && (!noReverseRepoMaturities
+    || rows.some(row => row.operationName !== "逆回购" || !row.duration || row.operationAmount === null || row.operationAmount <= 0)
+    || Number(rows.reduce((sum, row) => sum + row.operationAmount!, 0).toFixed(8)) !== injection)) {
+    throw new Error("OMO maturity data unavailable for today");
+  }
   const maturity = entries.reduce((sum, row) => sum + row.amount, 0);
-  const net = Number((injectionAmount(text) - maturity).toFixed(8));
+  const net = Number((injection - maturity).toFixed(8));
   const expiry = maturity !== 0 ? `今日有${entries.map((row, index) =>
     `${amountText(row.amount)}亿元${row.term}${entries[index + 1]?.name === row.name ? "" : row.name}`).join("及")}到期`
-    : "今日无公开市场操作到期";
+    : entries.length ? "今日无公开市场操作到期" : "今日无逆回购到期";
   const balance = net === 0 ? "当日投放与回笼量持平。"
     : `当日实现净${net > 0 ? "投放" : "回笼"}${amountText(Math.abs(net))}亿元。`;
   return `${text.replace(/[。\s]+$/, "")}。${expiry}，${balance}`;
@@ -161,9 +170,10 @@ export async function runOmo(date: string, step: Pick<WorkflowStep, "do">, depen
       const url = new URL(`${dependencies.apiBaseUrl.replace(/\/$/, "")}/omo`);
       url.search = new URLSearchParams({ startDate: date, endDate: date }).toString();
       const response = await dependencies.fetcher(url, { headers: { Accept: "application/json" }, signal });
-      return buildOpenMarketText(date, bulletin.text, await readJsonResponse(response, "OMO operations"));
+      return buildOpenMarketText(date, bulletin.text, await readJsonResponse(response, "OMO operations"), bulletin.noReverseRepoMaturities);
     });
-    return { date, status: "found" as const, ...bulletin, text };
+    const { noReverseRepoMaturities: _evidence, ...result } = bulletin;
+    return { date, status: "found" as const, ...result, text };
   });
 
   async function queryWithTimeout<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
