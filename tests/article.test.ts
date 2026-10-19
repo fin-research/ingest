@@ -12,6 +12,7 @@ import {
   prepareAiSearchMarkdown,
   validateArticleMetadata,
   workflowInstanceId,
+  shanghaiDate,
 } from "../src/article";
 
 const article = {
@@ -209,4 +210,13 @@ describe("research report helpers", () => {
     ]));
     expect(rows.map((article) => article.id)).toEqual(["oct"]);
   });
+});
+
+// The archive and dedupe day must follow Shanghai rather than the UTC date.
+it.each([
+  ["2026-12-31T15:59:59Z", "2026-12-31"],
+  ["2026-12-31T16:00:00Z", "2027-01-01"],
+  ["2027-01-01T00:00:00+08:00", "2027-01-01"],
+])("keeps Shanghai archive day for %s", (value, expected) => {
+  expect(shanghaiDate(value)).toBe(expected);
 });

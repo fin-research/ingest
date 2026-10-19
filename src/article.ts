@@ -3,7 +3,9 @@ import { cleanArchiveMarkdown } from "./markdown-cleanup.ts";
 
 const MAX_API_RESPONSE_BYTES = 5 * 1024 * 1024;
 const MAX_MARKDOWN_BYTES = 4 * 1024 * 1024;
-const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
+const shanghaiDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+});
 
 export const MARKET_COMMENTARY_TAG = "市场解读";
 export const ECONOMIC_DATA_POLICY_TAG = "经济数据&政策";
@@ -305,12 +307,7 @@ function sanitizeFilename(value: string): string {
 }
 
 export function shanghaiDate(value: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: SHANGHAI_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date(value));
+  const parts = shanghaiDateFormatter.formatToParts(new Date(value));
   const pick = (type: Intl.DateTimeFormatPartTypes): string =>
     parts.find((part) => part.type === type)?.value || "";
   return `${pick("year")}-${pick("month")}-${pick("day")}`;
