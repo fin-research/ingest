@@ -137,6 +137,32 @@ describe("open market bulletin", () => {
     }
   });
 
+  it("completes the real October 20 zero-injection bulletin using API maturities", async () => {
+    const pollDate = "2026-10-20", articleId = "2026102000011102800";
+    const text = "中国央行公告，根据公开市场业务一级交易商的需求，2026年10月20日7天期逆回购操作量为零。";
+    const fetcher: Fetcher = async input => {
+      const url = new URL(String(input));
+      if (url.pathname === "/data/news") return Response.json([{ ...row, sentimentId: articleId, time: `${pollDate}T09:20:17+08:00` }]);
+      if (url.pathname === "/data/omo") return Response.json([
+        { operationDate: pollDate, operationName: "逆回购到期", duration: "7D", operationAmount: -650 },
+        { operationDate: pollDate, operationName: "逆回购", duration: "7D", operationAmount: 0 },
+      ]);
+      return Response.json({ content: `${text}DM数据显示，今日有650亿元逆回购到期，当日实现净回笼999亿元。` });
+    };
+    const time = clock();
+    expect(await runOmo(pollDate, time.step, { apiBaseUrl, fetcher })).toEqual({
+      date: pollDate, status: "found", articleId, attempts: 1, errors: 0,
+      text: `${text}今日有650亿元7天期逆回购到期，当日实现净回笼650亿元。`,
+    });
+    expect(time.names).toEqual(["获取并清洗央行投放公告", "查询到期回笼并生成播报"]);
+    for (const content of [text.replace("为零", "为零点五"), text.replace("为零", "为零 点五"), text.replace("为零", "为零，开展100亿元其他业务")]) {
+      expect(() => buildOpenMarketText(pollDate, content, [{ ...maturities[0], operationDate: pollDate }])).toThrow();
+    }
+    expect(buildOpenMarketText(pollDate, `${text}中国央行开展100亿元隔夜逆回购操作。`, [{ ...maturities[0], operationDate: pollDate, operationAmount: -650 }]))
+      .toContain("当日实现净回笼550亿元。");
+    expect(() => buildOpenMarketText(pollDate, text, [])).toThrow();
+  });
+
   it.each([["2026-10-13", "2026101300011051547", 650], ["2026-10-14", "2026101400011060028", 560]] as const)(
     "completes the real no-maturity bulletin for %s without leaking evidence into the result", async (pollDate, articleId, amount) => {
       const content = `中国央行今日开展${amount}亿元7天逆回购操作，投标量${amount}亿元，中标量${amount}亿元，操作利率为1.40%。DM数据显示，今日暂无逆回购到期，当日实现净投放${amount}亿元。`;

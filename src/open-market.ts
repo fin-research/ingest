@@ -87,7 +87,8 @@ const operationSchema = z.object({
 /** Amounts come only from the cleaned announcement, never the API's injection rows. */
 function injectionAmount(text: string): number {
   const amounts = [...text.matchAll(/([\d,，]+(?:\.\d+)?)\s*(万亿|亿|万)?元/g)];
-  if (!amounts.length && /(?:不开展|未开展|暂停)(?:公开市场)?(?:逆回购|操作)/.test(text)) return 0;
+  if (!amounts.length && (/(?:不开展|未开展|暂停)(?:公开市场)?(?:逆回购|操作)/.test(text)
+    || /逆回购操作量为零(?:[，,。；;！？]|$)/.test(text))) return 0;
   if (!amounts.length || /净投放|净回笼|到期/.test(text)) throw new Error("OMO injection amount unavailable");
   let total = 0;
   for (const match of amounts) {
