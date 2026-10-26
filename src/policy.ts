@@ -502,7 +502,7 @@ export class D1PolicyNewsRepository implements PolicyNewsRepository {
                  SELECT 1 FROM policy_article pa
                  WHERE pa.policy_id = pe.id AND pa.association_method = 'manual'
                ) OR EXISTS (
-                 SELECT 1 FROM research_commentary rc WHERE rc.policy_id = pe.id
+                 SELECT 1 FROM commentary rc WHERE rc.policy_id = pe.id
                )
              THEN 1 ELSE 0 END AS merge_protected
       FROM policy_event pe
@@ -716,7 +716,7 @@ export class D1PolicyNewsRepository implements PolicyNewsRepository {
                  SELECT 1 FROM policy_article pa
                  WHERE pa.policy_id = pe.id AND pa.association_method = 'manual'
                ) OR EXISTS (
-                 SELECT 1 FROM research_commentary rc WHERE rc.policy_id = pe.id
+                 SELECT 1 FROM commentary rc WHERE rc.policy_id = pe.id
                )
              THEN 1 ELSE 0 END AS merge_protected
       FROM policy_event pe

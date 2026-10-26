@@ -690,6 +690,6 @@ async function createPolicyMergeTestTables(): Promise<void> {
     env.DB.prepare("CREATE TABLE IF NOT EXISTS policy_news (sentiment_id TEXT PRIMARY KEY, policy_id TEXT, title TEXT NOT NULL, published_at TEXT NOT NULL, content TEXT, link TEXT, aggregation_status TEXT NOT NULL, workflow_instance_id TEXT, discovered_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS article (id TEXT PRIMARY KEY, title TEXT NOT NULL, published_at TEXT NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS policy_article (policy_id TEXT NOT NULL, article_id TEXT NOT NULL, relation_status TEXT NOT NULL, association_method TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (policy_id, article_id))"),
-    env.DB.prepare("CREATE TABLE IF NOT EXISTS research_commentary (id TEXT PRIMARY KEY, policy_id TEXT UNIQUE)"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS commentary (id TEXT PRIMARY KEY, policy_id TEXT UNIQUE)"),
   ]);
 }
