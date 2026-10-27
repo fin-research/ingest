@@ -143,8 +143,9 @@ export function buildOpenMarketText(date: string, text: string, payload: unknown
   }
   const maturity = entries.reduce((sum, row) => sum + row.amount, 0);
   const net = Number((injection - maturity).toFixed(8));
-  const expiry = maturity !== 0 ? `今日有${entries.map((row, index) =>
-    `${amountText(row.amount)}亿元${row.term}${entries[index + 1]?.name === row.name ? "" : row.name}`).join("及")}到期`
+  const nonZeroEntries = entries.filter(row => row.amount !== 0);
+  const expiry = maturity !== 0 ? `今日有${nonZeroEntries.map((row, index) =>
+    `${amountText(row.amount)}亿元${row.term}${nonZeroEntries[index + 1]?.name === row.name ? "" : row.name}`).join("及")}到期`
     : entries.length ? "今日无公开市场操作到期" : "今日无逆回购到期";
   const balance = net === 0 ? "当日投放与回笼量持平。"
     : `当日实现净${net > 0 ? "投放" : "回笼"}${amountText(Math.abs(net))}亿元。`;

@@ -130,6 +130,20 @@ describe("open market bulletin", () => {
     expect(buildOpenMarketText(date, "中国央行今日开展6030亿元7天逆回购操作。", maturities)).toContain("当日投放与回笼量持平");
   });
 
+  it("omits zero-amount maturity items from the October 27 bulletin", () => {
+    const pollDate = "2026-10-27";
+    const text = "中国央行今日开展4120亿元7天逆回购操作，操作利率为1.40%。同时，开展了10000亿元隔夜逆回购操作。";
+    const payload = [
+      { operationDate: pollDate, operationName: "MLF到期", duration: "1Y", operationAmount: -9000 },
+      { operationDate: pollDate, operationName: "逆回购到期", duration: "7D", operationAmount: 0 },
+      { operationDate: pollDate, operationName: "逆回购到期", duration: "隔夜", operationAmount: -3980 },
+    ];
+    expect(buildOpenMarketText(pollDate, text, payload))
+      .toBe(`${text}今日有9000亿元1年期MLF及3980亿元隔夜逆回购到期，当日实现净投放1140亿元。`);
+    expect(buildOpenMarketText(pollDate, text, payload.map(row => ({ ...row, operationAmount: 0 }))))
+      .toBe(`${text}今日无公开市场操作到期，当日实现净投放14120亿元。`);
+  });
+
   it("rejects absent, incomplete or wrong-day maturity data instead of substituting zero", () => {
     for (const payload of [[], [maturities[2]], { rows: maturities }, [{ ...maturities[0], operationDate: "2026-09-16" }],
       [{ ...maturities[0], operationAmount: null }], [{ ...maturities[0], duration: null }]]) {
